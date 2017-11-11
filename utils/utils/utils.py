@@ -3,11 +3,11 @@ import torch
 import numpy as np
 
 def hard_update(fromm, to) :
-	for fp, tp in zip( fromm.parameters(), toparameters() ) :
+	for fp, tp in zip( fromm.parameters(), to.parameters() ) :
 		fp.cpu().data.copy_( tp.cpu().data )
 
 def soft_update(fromm, to, tau) :
-	for fp, tp in zip( fromm.parameters(), toparameters() ) :
+	for fp, tp in zip( fromm.parameters(), to.parameters() ) :
 		fp.cpu().data.copy_( (1.0-tau)*fp.cpu().data + tau*tp.cpu().data ) 
 
 class OrnsteinUhlenbeckNoise :
