@@ -268,7 +268,7 @@ class Model2 :
 		self.batch_size = BATCH_SIZE
 
 		self.optimizer_actor = optim.Adam(self.actor.parameters(), self.lr)
-		self.optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e2)
+		self.optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e1)
 
 		self.noise = OrnsteinUhlenbeckNoise(self.actor.action_dim)
 
@@ -378,12 +378,17 @@ class Model2 :
 
 				# Actor :
 				pred_action = self.actor(state_batch)
-				pred_qsa = torch.squeeze( self.critic(state_batch, pred_action) )
+				pred_qsa = self.critic(state_batch, pred_action)
 				# loss :
 				actor_loss = -1.0*torch.mean( pred_qsa)
 				#before optimization :
 				self.optimizer_actor.zero_grad()
 				actor_loss.backward()
+				
+				#clamping :
+				for p in self.actor.parameters() :
+					p.grad.clamp(-1,1)
+				
 				self.optimizer_actor.step()
 
 				

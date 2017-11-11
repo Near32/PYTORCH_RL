@@ -356,7 +356,7 @@ def trainIN(index,model,env,memory,logger=None,preprocess=T.ToTensor(),path=None
 
 				last_state = state
 				state, reward, done, info = get_state(env,action,preprocess=preprocess)
-				cumul_reward += reward
+				cumul_reward += float(reward)
 				treward = torch.from_numpy(reward.astype(np.float32))
 
 				if rendering :

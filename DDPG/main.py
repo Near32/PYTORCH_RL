@@ -60,18 +60,18 @@ def main():
 	last_sync = 0
 	
 	numep = 20000
-	BATCH_SIZE = 256
-	GAMMA = 0.999
+	BATCH_SIZE = 128
+	GAMMA = 0.9
 	TAU = 1e-3
-	MIN_MEMORY = 1e4
+	MIN_MEMORY = 1e3
 	use_cnn = False
 
 	CNN = {'use_cnn':use_cnn, 'input_size':input_dim}
 
 	alphaPER = 0.5
 	
-	lr = 1e-5
-	memoryCapacity = 1e5
+	lr = 1e-4
+	memoryCapacity = 2e4
 	
 	num_worker = 1
 	renderings = [False]*num_worker
