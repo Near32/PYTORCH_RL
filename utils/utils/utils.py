@@ -11,7 +11,7 @@ def soft_update(fromm, to, tau) :
 		fp.cpu().data.copy_( (1.0-tau)*fp.cpu().data + tau*tp.cpu().data ) 
 
 class OrnsteinUhlenbeckNoise :
-	def __init__(self, dim,mu=0.0, theta=0.9, sigma=0.2) :
+	def __init__(self, dim,mu=0.0, theta=0.15, sigma=0.2) :
 		self.dim = dim
 		self.mu = mu
 		self.theta = theta

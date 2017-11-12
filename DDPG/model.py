@@ -380,14 +380,14 @@ class Model2 :
 				pred_action = self.actor(state_batch)
 				pred_qsa = self.critic(state_batch, pred_action)
 				# loss :
-				actor_loss = -1.0*torch.mean( pred_qsa)
+				actor_loss = -1.0*torch.sum( pred_qsa)
 				#before optimization :
 				self.optimizer_actor.zero_grad()
 				actor_loss.backward()
 				
 				#clamping :
-				for p in self.actor.parameters() :
-					p.grad.clamp(-1,1)
+				#for p in self.actor.parameters() :
+				#	p.grad.clamp(-1,1)
 				
 				self.optimizer_actor.step()
 
@@ -398,6 +398,14 @@ class Model2 :
 				#print( 'Mean Actor Grad : {}'.format(actor_grad) )
 				
 
+				#UPDATE THE PR :
+				loss = actor_loss+critic_loss
+				loss_np = loss.cpu().data.numpy()
+				for (idx, new_error) in zip(batch.idx,loss_np) :
+					new_priority = memory.priority(new_error)
+					#print( 'prior = {} / {}'.format(new_priority,self.rBuffer.total()) )
+					memory.update(idx,new_priority)
+			
 			except Exception as e :
 				bashlogger.debug('error : {}',format(e) )
 				

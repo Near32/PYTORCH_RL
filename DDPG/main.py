@@ -61,17 +61,17 @@ def main():
 	
 	numep = 20000
 	BATCH_SIZE = 128
-	GAMMA = 0.9
+	GAMMA = 0.99
 	TAU = 1e-3
 	MIN_MEMORY = 1e3
 	use_cnn = False
 
 	CNN = {'use_cnn':use_cnn, 'input_size':input_dim}
 
-	alphaPER = 0.5
+	alphaPER = 0.8
 	
-	lr = 1e-4
-	memoryCapacity = 2e4
+	lr = 1e-3
+	memoryCapacity = 1e6
 	
 	num_worker = 1
 	renderings = [False]*num_worker

@@ -2,13 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+import numpy as np
 
 
 EPS = 1e-6
 
-def fanin_init(size, fanin=None):
-	fanin = fanin or size[0]
-	v = 1. / np.sqrt(fanin)
+def init_weights(size):
+	v = 1. / np.sqrt(size[0])
 	return torch.Tensor(size).uniform_(-v, v)
 
 class ActorNN(nn.Module) :
@@ -42,16 +42,17 @@ class ActorNN(nn.Module) :
 			#self.featx = nn.Linear(448,self.nbr_actions)
 			self.featx = nn.Linear(192,128)
 		else :
-			self.fc1 = nn.Linear(self.state_dim,128)
-			self.fc1.weight.data.uniform_(-EPS,EPS)	
+			self.fc1 = nn.Linear(self.state_dim,256)
+			self.fc1.weight.data = init_weights(self.fc1.weight.data.size())
 			#self.bn1 = nn.BatchNorm1d(512)
-			#self.fc2 = nn.Linear(512,256)
+			self.fc2 = nn.Linear(256,128)
+			self.fc2.weight.data = init_weights(self.fc2.weight.data.size())	
 			#self.bn2 = nn.BatchNorm1d(256)
 			#self.featx = nn.Linear(448,self.nbr_actions)
 			self.featx = nn.Linear(128,64)
 			
 
-		self.featx.weight.data.uniform_(-EPS,EPS)
+		self.featx.weight.data = init_weights(self.featx.weight.data.size())
 
 		# Actor network :
 		self.actor_final = nn.Linear(64,self.action_dim)
@@ -71,9 +72,9 @@ class ActorNN(nn.Module) :
 			#x1 = F.relu( self.bn1(self.fc1(x) ) )
 			x1 = F.relu( self.fc1(x) )
 			#x2 = F.relu( self.bn2(self.fc2(x1) ) )
-			#x2 = F.relu( self.fc2(x1)  )
-			#fx = F.relu( self.featx( x2) )
-			fx = F.relu( self.featx( x1) )
+			x2 = F.relu( self.fc2(x1)  )
+			fx = F.relu( self.featx( x2) )
+			#fx = F.relu( self.featx( x1) )
 			# batch x 128
 	
 		return fx
@@ -150,14 +151,15 @@ class CriticNN(nn.Module) :
 			self.featx = nn.Linear(192,128)
 		else :
 			self.fc1 = nn.Linear(self.state_dim,256)
-			self.fc1.weight.data.uniform_(-EPS,EPS)
+			self.fc1.weight.data = init_weights(self.fc1.weight.data.size())
 			self.bn1 = nn.BatchNorm1d(256)
 			#self.fc2 = nn.Linear(512,256)
 			#self.bn2 = nn.BatchNorm1d(256)
 			#self.featx = nn.Linear(448,self.nbr_actions)
 			self.featx = nn.Linear(256,128)
 
-		self.featx.weight.data.uniform_(-EPS,EPS)
+		
+		self.featx.weight.data = init_weights(self.featx.weight.data.size())
 
 		# Critic network :
 		## state value path :
@@ -165,24 +167,28 @@ class CriticNN(nn.Module) :
 			self.critic_Vhead = nn.Linear(128,1)
 		else :
 			self.critic_Vhead = nn.Linear(128,64)
-		self.critic_Vhead.weight.data.uniform_(-EPS,EPS)
-
+		
+		self.critic_Vhead.weight.data = init_weights(self.critic_Vhead.weight.data.size())
+		
 		## action value path :
 		self.critic_afc1 = nn.Linear(self.action_dim,128)
-		self.critic_afc1.weight.data.uniform_(-EPS,EPS)
+		self.critic_afc1.weight.data.uniform_(-1e-1,1e-1)
+		#self.critic_afc1.weight.data = init_weights(self.critic_afc1.weight.data.size())
 		#self.critic_afc2 = nn.Linear(256,128)
 		#self.critic_afc2.weight.data.uniform_(-EPS,EPS)
 
 		if self.dueling :
 			self.critic_ahead = nn.Linear(256,1)
-			self.critic_ahead.weight.data.uniform_(-EPS,EPS)
+			self.critic_ahead.weight.data = init_weights(self.critic_ahead.weight.data.size())
 		else :
-			self.critic_ahead = nn.Linear(256,64)
-			self.critic_ahead.weight.data.uniform_(-EPS,EPS)
+			self.critic_ahead = nn.Linear(256,128)
+			self.critic_ahead.weight.data = init_weights(self.critic_ahead.weight.data.size())
 			#linear layer, after the concatenation of ahead and vhead :
 			#self.critic_final = nn.Linear(128,1)
-			self.critic_final = nn.Linear(64,1)
-			self.critic_final.weight.data.uniform_(-EPS,EPS)
+			self.critic_final1 = nn.Linear(128,64)
+			self.critic_final1.weight.data = init_weights(self.critic_final1.weight.data.size())
+			self.critic_final2 = nn.Linear(64,1)
+			self.critic_final2.weight.data.uniform_(-EPS,EPS) 
 
 
 	def features(self,x) :
@@ -224,7 +230,9 @@ class CriticNN(nn.Module) :
 		else :
 			self.advantage = self.critic_ahead(afx)
 			#concat = torch.cat( [ self.v,self.advantage], dim=1)
-			self.out = self.critic_final(self.advantage)
+			#self.out = self.critic_final(self.advantage)
+			self.preout = self.critic_final1(self.advantage)
+			self.out = self.critic_final2(self.preout)
 
 		return self.out
 
