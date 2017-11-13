@@ -7,7 +7,7 @@ import gc
 from itertools import count
 
 import threading
-from utils.replayBuffer import EXP,PrioritizedReplayBuffer
+from utils.replayBuffer import EXP,TransitionPR,PrioritizedReplayBuffer,ReplayMemory
 from utils.statsLogger import statsLogger
 #from utils.histogram import HistogramDebug
 
@@ -96,7 +96,8 @@ class Worker :
 				meanfreq = 0
 				
 				episode_qsa_buffer = []
-				episode_loss_buffer = []
+				episode_closs_buffer = []
+				episode_aloss_buffer = []
 				episode_grad_actor_buffer = []
 				action_buffer = []
 
@@ -145,10 +146,12 @@ class Worker :
 					retloss = model.optimize(optimizer_critic=optimizers['critic'],optimizer_actor=optimizers['actor'])
 					if retloss is not None :
 						critic_loss,actor_loss, actor_grad = retloss
-						episode_loss_buffer.append(  np.mean(critic_loss) )
+						episode_closs_buffer.append(  np.mean(critic_loss) )
+						episode_aloss_buffer.append(  np.mean(actor_loss) )
 						episode_grad_actor_buffer.append(  actor_grad )
 					else :
-						episode_loss_buffer.append(0)
+						episode_closs_buffer.append(0)
+						episode_aloss_buffer.append(0)
 						episode_grad_actor_buffer.append(0)
 
 					elt = time.time() - since
@@ -160,8 +163,9 @@ class Worker :
 					if done :
 						episode_durations.append(t+1)
 						episode_reward.append(cumul_reward)
-						meanloss = np.mean(episode_loss_buffer)
-						episode_loss.append(meanloss)
+						meancloss = np.mean(episode_closs_buffer)
+						meanaloss = np.mean(episode_aloss_buffer)
+						episode_loss.append(meancloss)
 						meanqsa = np.mean(episode_qsa_buffer) 
 						maxqsa = np.max(episode_qsa_buffer) 
 						episode_qsa.append( meanqsa)
@@ -171,10 +175,10 @@ class Worker :
 						sigmaaction = np.std(action_buffer)
 						#hd.append(np.array(action_buffer) )
 
-						log = 'Episode duration : {}'.format(t+1) +'---' +' Action : mu:{:.4f} sig:{:.4f} // Reward : {} // Mean Loss : {:.4f} // Mean/MaxQsa : {:.4f}/{:.4f} // Mean Actor Grad : {:.8f}'.format(meanaction,sigmaaction,cumul_reward,meanloss,meanqsa,maxqsa,meanactorgrad) +'---'+' {}Hz'.format(meanfreq)
+						log = 'Episode duration : {}'.format(t+1) +'---' +' Action : mu:{:.4f} sig:{:.4f} // Reward : {} // Mean C/A Losses : {:.4f}/{:.4f} // Mean/MaxQsa : {:.4f}/{:.4f} // Mean Actor Grad : {:.8f}'.format(meanaction,sigmaaction,cumul_reward,meancloss,meanaloss,meanqsa,maxqsa,meanactorgrad) +'---'+' {}Hz'.format(meanfreq)
 						bashlogger.info(log)
 						if logger is not None :
-							new = {'episodes':[i],'duration':[t+1],'reward':[cumul_reward],'mean frequency':[meanfreq],'loss':[meanloss],'max qsa':[maxqsa],'mean qsa':[meanqsa],'mean action':[meanaction]}
+							new = {'episodes':[i],'duration':[t+1],'reward':[cumul_reward],'mean frequency':[meanfreq],'critic loss':[meancloss],'actor loss':[meanaloss],'max qsa':[maxqsa],'mean qsa':[meanqsa],'mean action':[meanaction]}
 							logger.append(new)
 
 						if path is not None :
@@ -235,10 +239,15 @@ class Worker :
 						del el
 						del goals
 				else :
-					for el in episode_buffer :
-						#store this transition 
-						init_priority = memory.priority( torch.abs(el.reward).numpy() )
-						memory.add(el,init_priority)
+					if isinstance( memory, PrioritizedReplayBuffer) :
+						for el in episode_buffer :
+							#store this transition 
+							init_priority = memory.priority( torch.abs(el.reward).numpy() )
+							memory.add(el,init_priority)
+					else :
+						for el in episode_buffer :
+							#store this transition 
+							memory.add(el)
 
 				del episode_buffer
 				# check memory consumption and clear memory

@@ -3,7 +3,7 @@ import time
 import gym
 
 from worker import Worker
-from utils.replayBuffer import EXP,PrioritizedReplayBuffer
+from utils.replayBuffer import EXP,PrioritizedReplayBuffer, ReplayMemory
 from utils.statsLogger import statsLogger
 
 from model import Model,Model2, Model2Distributed
@@ -64,7 +64,7 @@ def main():
 	numep = 20000
 	BATCH_SIZE = 512
 	GAMMA = 0.99
-	TAU = 1e-4
+	TAU = 1e-3
 	MIN_MEMORY = 2e3
 	use_cnn = False
 
@@ -72,10 +72,10 @@ def main():
 
 	alphaPER = 0.8
 	
-	lr = 1e-8
+	lr = 1e-3
 	memoryCapacity = 1e5
 	
-	num_worker = 2
+	num_worker = 1
 	renderings = [False]*num_worker
 	#renderings[0] = True
 	
@@ -118,7 +118,8 @@ def main():
 		frompath = os.path.join(model_path,savings[0])
 
 
-	memory = PrioritizedReplayBuffer(capacity=memoryCapacity,alpha=alphaPER)
+	#memory = PrioritizedReplayBuffer(capacity=memoryCapacity,alpha=alphaPER)
+	memory = ReplayMemory(capacity=memoryCapacity)
 	bashlogger.info('Memory : ok.')
 
 	

@@ -18,7 +18,7 @@ logging.basicConfig(format=FORMAT)
 
 from NN import ActorCriticNN
 from utils.utils import soft_update, hard_update, OrnsteinUhlenbeckNoise
-from utils.replayBuffer import TransitionPR
+from utils.replayBuffer import TransitionPR,PrioritizedReplayBuffer, ReplayMemory
 
 TAU = 1e-3
 GAMMA = 0.99
@@ -481,8 +481,8 @@ class Model2Distributed :
 
 	
 	def generate_optimizers(self) :
-		optimizer_actor = optim.Adam(self.actor.parameters(), self.lr)
-		optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e1)
+		optimizer_actor = optim.SGD(self.actor.parameters(), self.lr)
+		optimizer_critic = optim.SGD(self.critic.parameters(), self.lr*1e1)
 
 		return {'critic':optimizer_critic,'actor':optimizer_actor}
 
@@ -529,19 +529,29 @@ class Model2Distributed :
 				if len(self.memory) < self.MIN_MEMORY :
 					return
 				
-				#Create Batch with PR :
+				#Create Batch 
 				self.mutex.acquire()
-				prioritysum = self.memory.total()
-				randexp = np.random.random(size=self.batch_size)*prioritysum
-				batch = list()
-				for i in range(self.batch_size):
-					try :
-						el = self.memory.get(randexp[i])
-						batch.append(el)
-					except TypeError as e :
-						continue
-						#print('REPLAY BUFFER EXCEPTION...')
+				
+				if isinstance(self.memory, PrioritizedReplayBuffer) :
+					#with PR :
+					prioritysum = self.memory.total()
+					randexp = np.random.random(size=self.batch_size)*prioritysum
+					batch = list()
+					for i in range(self.batch_size):
+						try :
+							el = self.memory.get(randexp[i])
+							batch.append(el)
+						except TypeError as e :
+							continue
+							#print('REPLAY BUFFER EXCEPTION...')
+				else :
+					#with random RB :
+					batch = self.memory.sample(self.batch_size)
+
 				self.mutex.release()
+
+				if len(batch) == 0 :
+					return
 
 				# Create Batch with replayMemory :
 				batch = TransitionPR( *zip(*batch) )
@@ -574,7 +584,7 @@ class Model2Distributed :
 				actor_loss = -1.0*torch.mean(torch.sum( pred_qsa) )
 				actor_loss.backward()
 				#clamping :
-				torch.nn.utils.clip_grad_norm(self.actor.parameters(),0.05)				
+				#torch.nn.utils.clip_grad_norm(self.actor.parameters(),0.5)				
 				optimizer_actor.step()
 
 				# Critic :
@@ -590,12 +600,12 @@ class Model2Distributed :
 				## y_pred :
 				y_pred = torch.squeeze( self.critic(state_batch,action_batch) )
 				## loss :
-				#critic_loss = F.smooth_l1_loss(y_pred,y_true)
-				criterion = nn.MSELoss()
-				critic_loss = criterion(y_pred,y_true)
+				critic_loss = F.smooth_l1_loss(y_pred,y_true)
+				#criterion = nn.MSELoss()
+				#critic_loss = criterion(y_pred,y_true)
 				critic_loss.backward()
 				#clamping :
-				torch.nn.utils.clip_grad_norm(self.critic.parameters(),0.5)				
+				#torch.nn.utils.clip_grad_norm(self.critic.parameters(),0.5)				
 				optimizer_critic.step()
 				
 				'''
@@ -612,19 +622,22 @@ class Model2Distributed :
 				
 
 				#UPDATE THE PR :
-				self.mutex.acquire()
-				loss = torch.abs(actor_loss) + torch.abs(critic_loss)
-				#loss = torch.abs(actor_loss) #+ torch.abs(critic_loss)
-				loss_np = loss.cpu().data.numpy()
-				for (idx, new_error) in zip(batch.idx,loss_np) :
-					new_priority = self.memory.priority(new_error)
-					#print( 'prior = {} / {}'.format(new_priority,self.rBuffer.total()) )
-					self.memory.update(idx,new_priority)
-				self.mutex.release()
+				if isinstance(self.memory, PrioritizedReplayBuffer) :
+					self.mutex.acquire()
+					loss = torch.abs(actor_loss) + torch.abs(critic_loss)
+					#loss = torch.abs(actor_loss) #+ torch.abs(critic_loss)
+					loss_np = loss.cpu().data.numpy()
+					for (idx, new_error) in zip(batch.idx,loss_np) :
+						new_priority = self.memory.priority(new_error)
+						#print( 'prior = {} / {}'.format(new_priority,self.rBuffer.total()) )
+						self.memory.update(idx,new_priority)
+					self.mutex.release()
 
 			except Exception as e :
 				bashlogger.debug('error : {}',format(e) )
-				print(batch)
+				print(len(batch) )
+				print(batch[0])
+				raise e
 
 			# soft update :
 			soft_update(self.target_critic, self.critic, self.tau)

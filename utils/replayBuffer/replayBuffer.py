@@ -1,5 +1,6 @@
 import numpy as np
 from collections import namedtuple
+import random
 
 '''
 class EXP :
@@ -110,10 +111,10 @@ class ReplayMemory(object) :
 		self.memory = []
 		self.position = 0
 
-	def push(self, *args) :
+	def add(self, exp) :
 		if len(self.memory) < self.capacity :
 			self.memory.append(None)
-		self.memory[self.position] = Transition(*args)
+		self.memory[self.position] = (self.position, 1.0, *exp)
 		self.position = (self.position+1) % self.capacity
 		self.position = int(self.position)
 
