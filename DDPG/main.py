@@ -62,7 +62,7 @@ def main():
 	last_sync = 0
 	
 	numep = 20000
-	BATCH_SIZE = 512
+	BATCH_SIZE = 64
 	GAMMA = 0.99
 	TAU = 1e-3
 	MIN_MEMORY = 2e3
@@ -73,7 +73,7 @@ def main():
 	alphaPER = 0.8
 	
 	lr = 1e-3
-	memoryCapacity = 1e5
+	memoryCapacity = 1e6
 	
 	num_worker = 1
 	renderings = [False]*num_worker

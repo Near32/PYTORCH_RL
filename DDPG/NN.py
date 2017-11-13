@@ -184,7 +184,10 @@ class CriticNN(nn.Module) :
 			self.critic_ahead = nn.Linear(256,128)
 			self.critic_ahead.weight.data = init_weights(self.critic_ahead.weight.data.size())
 			#linear layer, after the concatenation of ahead and vhead :
-			#self.critic_final = nn.Linear(128,1)
+			'''
+			self.critic_final = nn.Linear(128,1)
+			self.critic_final.weight.data.uniform_(-EPS,EPS) 
+			'''
 			self.critic_final1 = nn.Linear(128,64)
 			self.critic_final1.weight.data = init_weights(self.critic_final1.weight.data.size())
 			self.critic_final2 = nn.Linear(64,1)
@@ -230,8 +233,10 @@ class CriticNN(nn.Module) :
 			out = advantage + v
 		else :
 			advantage = self.critic_ahead(afx)
-			#concat = torch.cat( [ self.v,self.advantage], dim=1)
-			#self.out = self.critic_final(self.advantage)
+			#concat = torch.cat( [ v,advantage], dim=1)
+			'''
+			out = self.critic_final(advantage)
+			'''
 			preout = self.critic_final1(advantage)
 			out = self.critic_final2(preout)
 
@@ -330,7 +335,7 @@ class ActorCriticNN(nn.Module) :
 		fx = self.features(x)
 
 		#V value :
-		self.v = self.critic_Vhead( fx )
+		v = self.critic_Vhead( fx )
 		
 
 		a1 = F.relu( self.critic_afc1(a) )
@@ -340,14 +345,14 @@ class ActorCriticNN(nn.Module) :
 		# batch x 256
 
 		if self.dueling :
-			self.advantage = self.critic_ahead(afx)
-			self.out = self.advantage + self.v
+			advantage = self.critic_ahead(afx)
+			out = advantage + v
 		else :
-			self.advantage = self.critic_ahead(afx)
-			concat = torch.cat( [ self.v,afx], dim=1)
-			self.out = self.critic_final(concat)
+			advantage = self.critic_ahead(afx)
+			concat = torch.cat( [ v,advantage], dim=1)
+			out = self.critic_final(concat)
 
-		return self.out
+		return out
 
 	def actor(self, x) :
 		
@@ -356,10 +361,10 @@ class ActorCriticNN(nn.Module) :
 		xx = self.actor_final( fx )
 		
 		#scale the actions :
-		self.unscaled = F.tanh(xx)
-		self.scaled = self.unscaled * self.action_scaler
+		unscaled = F.tanh(xx)
+		scaled = unscaled * self.action_scaler
 
-		return self.scaled
+		return scaled
 
 
 
