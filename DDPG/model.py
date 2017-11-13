@@ -246,7 +246,7 @@ class Model :
 
 
 class Model2 :
-	def __init__(self, actor, critic, memory, algo='ddpg',GAMMA=GAMMA,LR=LR,TAU=TAU,use_cuda=USE_CUDA,BATCH_SIZE=BATCH_SIZE ) :
+	def __init__(self, actor, critic, memory, algo='ddpg',GAMMA=GAMMA,LR=LR,TAU=TAU,use_cuda=USE_CUDA,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=1e3 ) :
 		self.actor = actor
 		self.critic = critic
 		self.target_actor = copy.deepcopy(actor)
@@ -266,6 +266,7 @@ class Model2 :
 		self.lr = LR
 		self.tau = TAU
 		self.batch_size = BATCH_SIZE
+		self.MIN_MEMORY = MIN_MEMORY
 
 		self.optimizer_actor = optim.Adam(self.actor.parameters(), self.lr)
 		self.optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e1)
@@ -307,7 +308,7 @@ class Model2 :
 		
 		return qsa.cpu().data.numpy()
 
-	def optimize(self,MIN_MEMORY=1e3) :
+	def optimize(self) :
 		'''
 		self.target_critic.eval()
 		self.target_actor.eval()
@@ -317,7 +318,7 @@ class Model2 :
 
 		if self.algo == 'ddpg' :
 			try :
-				if len(self.memory) < MIN_MEMORY :
+				if len(self.memory) < self.MIN_MEMORY :
 					return
 				
 				#Create Batch with PR :
@@ -352,7 +353,23 @@ class Model2 :
 					reward_batch = reward_batch.cuda()
 
 				
+				# Actor :
+				#before optimization :
+				self.optimizer_actor.zero_grad()
+				#predict action :
+				pred_action = self.actor(state_batch)
+				#predict associated qvalues :
+				pred_qsa = self.critic(state_batch, pred_action)
+				# loss :
+				actor_loss = -1.0*torch.mean(torch.sum( pred_qsa) )
+				actor_loss.backward()
+				#clamping :
+				torch.nn.utils.clip_grad_norm(self.actor.parameters(),0.05)				
+				self.optimizer_actor.step()
+
 				# Critic :
+				#before optimization :
+				self.optimizer_critic.zero_grad()
 				# sample action from next_state, without gradient repercusion :
 				next_taction = self.target_actor(next_state_batch).detach()
 				# evaluate the next state action over the target, without repercusion (faster...) :
@@ -363,10 +380,12 @@ class Model2 :
 				## y_pred :
 				y_pred = torch.squeeze( self.critic(state_batch,action_batch) )
 				## loss :
-				critic_loss = F.smooth_l1_loss(y_pred,y_true)
-				#before optimization :
-				self.optimizer_critic.zero_grad()
+				#critic_loss = F.smooth_l1_loss(y_pred,y_true)
+				criterion = nn.MSELoss()
+				critic_loss = criterion(y_pred,y_true)
 				critic_loss.backward()
+				#clamping :
+				torch.nn.utils.clip_grad_norm(self.critic.parameters(),0.5)				
 				self.optimizer_critic.step()
 				
 				'''
@@ -375,36 +394,21 @@ class Model2 :
 					critic_grad += np.mean(p.grad.cpu().data.numpy())
 				print( 'Mean Critic Grad : {}'.format(critic_grad) )
 				'''
-
-				# Actor :
-				pred_action = self.actor(state_batch)
-				pred_qsa = self.critic(state_batch, pred_action)
-				# loss :
-				actor_loss = -1.0*torch.sum( pred_qsa)
-				#before optimization :
-				self.optimizer_actor.zero_grad()
-				actor_loss.backward()
-				
-				#clamping :
-				#for p in self.actor.parameters() :
-				#	p.grad.clamp(-1,1)
-				
-				self.optimizer_actor.step()
-
 				
 				actor_grad = 0.0
 				for p in self.actor.parameters() :
-					actor_grad += np.mean( np.abs(p.grad.cpu().data.numpy() ) )
+					actor_grad += np.max( np.abs(p.grad.cpu().data.numpy() ) )
 				#print( 'Mean Actor Grad : {}'.format(actor_grad) )
 				
 
 				#UPDATE THE PR :
-				loss = actor_loss+critic_loss
+				loss = torch.abs(actor_loss) + torch.abs(critic_loss)
+				#loss = torch.abs(actor_loss) #+ torch.abs(critic_loss)
 				loss_np = loss.cpu().data.numpy()
 				for (idx, new_error) in zip(batch.idx,loss_np) :
-					new_priority = memory.priority(new_error)
+					new_priority = self.memory.priority(new_error)
 					#print( 'prior = {} / {}'.format(new_priority,self.rBuffer.total()) )
-					memory.update(idx,new_priority)
+					self.memory.update(idx,new_priority)
 			
 			except Exception as e :
 				bashlogger.debug('error : {}',format(e) )

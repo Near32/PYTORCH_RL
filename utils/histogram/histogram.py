@@ -1,5 +1,7 @@
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
+import matplotlib
+matplotlib.use("qt4agg")
 import matplotlib.pyplot as plt
 import time 
 
@@ -147,8 +149,30 @@ def test4() :
 	plt.show()
 
 
+def test5() :
+	import threading
+	import time
+
+	def plot_a_graph():
+	    f,a = plt.subplots(1)
+	    line = plt.plot(range(10))
+	    plt.show()
+	    print("plotted graph")    
+	    time.sleep(4)
+
+
+	testthread = threading.Thread(target=plot_a_graph)
+
+	plot_a_graph()      # this works fine, displays the graph and waits
+	print("that took some time")
+
+	testthread.start() # Thread starts, window is opened but no graph appears
+	print("already there")
+
+
 if __name__ == '__main__' :
 	#test1()
-	test2()
+	#test2()
 	#test3()
 	#test4()
+	test5()

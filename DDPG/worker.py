@@ -9,7 +9,7 @@ from itertools import count
 import threading
 from utils.replayBuffer import EXP,PrioritizedReplayBuffer
 from utils.statsLogger import statsLogger
-from utils.histogram import HistogramDebug
+#from utils.histogram import HistogramDebug
 
 
 import logging
@@ -313,8 +313,8 @@ def trainIN(index,model,env,memory,logger=None,preprocess=T.ToTensor(),path=None
 		
 		#accumulateMemory(memory,env,models,preprocess,epsstart=0.5,epsend=0.3,epsdecay=200,k=k,strategy=strategy)
 
-		hd = HistogramDebug()
-		hd.setXlimit(-2.5,2.5)
+		#hd = HistogramDebug()
+		#hd.setXlimit(-2.5,2.5)
 
 		for i in range(num_episodes) :
 			bashlogger.info('Episode : {} : memory : {}/{}'.format(i,len(memory),memory.capacity) )
@@ -395,17 +395,18 @@ def trainIN(index,model,env,memory,logger=None,preprocess=T.ToTensor(),path=None
 					meanloss = np.mean(episode_loss_buffer)
 					episode_loss.append(meanloss)
 					meanqsa = np.mean(episode_qsa_buffer) 
+					maxqsa = np.max(episode_qsa_buffer) 
 					episode_qsa.append( meanqsa)
 					meanactorgrad = np.max(episode_grad_actor_buffer) 
 					episode_grad_actor.append( meanactorgrad)
 					meanaction = np.mean(action_buffer)
 					sigmaaction = np.std(action_buffer)
-					hd.append(np.array(action_buffer) )
+					#hd.append(np.array(action_buffer) )
 
-					log = 'Episode duration : {}'.format(t+1) +'---' +' Action : mu:{} sig:{} // Reward : {} // Mean Loss : {} // Mean Qsa : {} // Mean Actor Grad : {}'.format(meanaction,sigmaaction,cumul_reward,meanloss,meanqsa,meanactorgrad) +'---'+' {}Hz'.format(meanfreq)
+					log = 'Episode duration : {}'.format(t+1) +'---' +' Action : mu:{:.4f} sig:{:.4f} // Reward : {} // Mean Loss : {:.4f} // Mean/MaxQsa : {:.4f}/{:.4f} // Mean Actor Grad : {:.8f}'.format(meanaction,sigmaaction,cumul_reward,meanloss,meanqsa,maxqsa,meanactorgrad) +'---'+' {}Hz'.format(meanfreq)
 					bashlogger.info(log)
 					if logger is not None :
-						new = {'episodes':[i],'duration':[t+1],'reward':[cumul_reward],'mean frequency':[meanfreq],'loss':[meanloss]}
+						new = {'episodes':[i],'duration':[t+1],'reward':[cumul_reward],'mean frequency':[meanfreq],'loss':[meanloss],'max qsa':[maxqsa],'mean qsa':[meanqsa],'mean action':[meanaction]}
 						logger.append(new)
 
 					if path is not None :

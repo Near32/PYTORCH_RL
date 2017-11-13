@@ -1,5 +1,6 @@
 import os
 import time
+import gym
 
 from worker import Worker
 from utils.replayBuffer import EXP,PrioritizedReplayBuffer
@@ -38,9 +39,10 @@ def main():
 	#input_size = 3
 	
 	env = 'Pendulum-v0'#gym.make('Breakout-v0')#.unwrapped
-	action_dim = 1
-	input_dim = 3
-	action_scaler = 2.0
+	task = gym.make(env)
+	action_dim = task.action_space.shape[0]
+	input_dim = task.observation_space.shape[0]
+	action_scaler = task.action_space.high[0]
 	'''
 	env = 'MountainCarContinuous-v0'#gym.make('Breakout-v0')#.unwrapped
 	action_dim = 1
@@ -60,10 +62,10 @@ def main():
 	last_sync = 0
 	
 	numep = 20000
-	BATCH_SIZE = 128
+	BATCH_SIZE = 512
 	GAMMA = 0.99
 	TAU = 1e-3
-	MIN_MEMORY = 1e3
+	MIN_MEMORY = 2e3
 	use_cnn = False
 
 	CNN = {'use_cnn':use_cnn, 'input_size':input_dim}
@@ -71,7 +73,7 @@ def main():
 	alphaPER = 0.8
 	
 	lr = 1e-3
-	memoryCapacity = 1e6
+	memoryCapacity = 1e5
 	
 	num_worker = 1
 	renderings = [False]*num_worker
@@ -142,7 +144,7 @@ def main():
 	critic = CriticNN(state_dim=input_dim,action_dim=action_dim,dueling=dueling,CNN=CNN,HER=HER['use_her'])
 	critic.share_memory()
 
-	model = Model2(actor=actor,critic=critic,memory=memory,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE)
+	model = Model2(actor=actor,critic=critic,memory=memory,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=MIN_MEMORY)
 	
 	bashlogger.info('Models : created.')
 	if frompath is not None :

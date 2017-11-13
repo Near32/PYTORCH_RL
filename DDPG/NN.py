@@ -5,7 +5,7 @@ from torch.autograd import Variable
 import numpy as np
 
 
-EPS = 1e-6
+EPS = 3e-3
 
 def init_weights(size):
 	v = 1. / np.sqrt(size[0])
@@ -152,7 +152,7 @@ class CriticNN(nn.Module) :
 		else :
 			self.fc1 = nn.Linear(self.state_dim,256)
 			self.fc1.weight.data = init_weights(self.fc1.weight.data.size())
-			self.bn1 = nn.BatchNorm1d(256)
+			#self.bn1 = nn.BatchNorm1d(256)
 			#self.fc2 = nn.Linear(512,256)
 			#self.bn2 = nn.BatchNorm1d(256)
 			#self.featx = nn.Linear(448,self.nbr_actions)
@@ -201,7 +201,8 @@ class CriticNN(nn.Module) :
 			fx = F.relu( self.featx( x4) )
 			# batch x 128 
 		else :
-			x1 = F.relu( self.bn1(self.fc1(x) ) )
+			#x1 = F.relu( self.bn1(self.fc1(x) ) )
+			x1 = F.relu( self.fc1(x) )
 			#x2 = F.relu( self.bn2(self.fc2(x1) ) )
 			#fx = F.relu( self.featx( x2) )
 			fx = F.relu( self.featx( x1) )
