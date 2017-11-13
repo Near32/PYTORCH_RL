@@ -4,11 +4,11 @@ import numpy as np
 
 def hard_update(fromm, to) :
 	for fp, tp in zip( fromm.parameters(), to.parameters() ) :
-		fp.cpu().data.copy_( tp.cpu().data )
+		fp.data.copy_( tp.data )
 
 def soft_update(fromm, to, tau) :
 	for fp, tp in zip( fromm.parameters(), to.parameters() ) :
-		fp.cpu().data.copy_( (1.0-tau)*fp.cpu().data + tau*tp.cpu().data ) 
+		fp.data.copy_( (1.0-tau)*fp.data + tau*tp.data ) 
 
 class OrnsteinUhlenbeckNoise :
 	def __init__(self, dim,mu=0.0, theta=0.15, sigma=0.2) :

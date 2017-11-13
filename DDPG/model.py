@@ -772,7 +772,7 @@ class Model2Distributed :
 
 	
 	def generate_optimizers(self) :
-		optimizer_actor = optim.Adam(self.actor.parameters(), self.lr*1e0)
+		optimizer_actor = optim.SGD(self.actor.parameters(), self.lr*1e0)
 		optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e-1)
 
 		return {'critic':optimizer_critic,'actor':optimizer_actor}
@@ -882,7 +882,7 @@ class Model2Distributed :
 				#critic_loss = criterion(y_pred,y_true)
 				critic_loss.backward()
 				#clamping :
-				torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
+				#torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
 				optimizer_critic.step()
 				
 				
@@ -897,8 +897,8 @@ class Model2Distributed :
 				actor_loss = -1.0*torch.mean(torch.sum( pred_qsa) )
 				actor_loss.backward()
 				#clamping :
-				clampactor = 1.0/np.min( [ 0.5, np.max( [ 1e-4, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
-				torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
+				#clampactor = 1e-10#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
+				#torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
 				optimizer_actor.step()
 
 				
