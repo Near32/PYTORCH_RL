@@ -64,7 +64,7 @@ def main():
 	numep = 20000
 	BATCH_SIZE = 512
 	GAMMA = 0.99
-	TAU = 1e-3
+	TAU = 1e-4
 	MIN_MEMORY = 2e3
 	use_cnn = False
 
@@ -72,10 +72,10 @@ def main():
 
 	alphaPER = 0.8
 	
-	lr = 1e-3
+	lr = 1e-5
 	memoryCapacity = 1e5
 	
-	num_worker = 1
+	num_worker = 2
 	renderings = [False]*num_worker
 	#renderings[0] = True
 	

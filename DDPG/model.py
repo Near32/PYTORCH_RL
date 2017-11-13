@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torchvision.transforms as T
 
-
+from threading import Lock
 import numpy as np
 
 import copy
@@ -470,6 +470,7 @@ class Model2Distributed :
 		self.batch_size = BATCH_SIZE
 		self.MIN_MEMORY = MIN_MEMORY
 
+		self.mutex = Lock()
 		
 		self.noise = OrnsteinUhlenbeckNoise(self.actor.action_dim)
 
@@ -529,6 +530,7 @@ class Model2Distributed :
 					return
 				
 				#Create Batch with PR :
+				self.mutex.acquire()
 				prioritysum = self.memory.total()
 				randexp = np.random.random(size=self.batch_size)*prioritysum
 				batch = list()
@@ -539,7 +541,8 @@ class Model2Distributed :
 					except TypeError as e :
 						continue
 						#print('REPLAY BUFFER EXCEPTION...')
-				
+				self.mutex.release()
+
 				# Create Batch with replayMemory :
 				batch = TransitionPR( *zip(*batch) )
 				next_state_batch = Variable(torch.cat( batch.next_state), requires_grad=False)
@@ -609,6 +612,7 @@ class Model2Distributed :
 				
 
 				#UPDATE THE PR :
+				self.mutex.acquire()
 				loss = torch.abs(actor_loss) + torch.abs(critic_loss)
 				#loss = torch.abs(actor_loss) #+ torch.abs(critic_loss)
 				loss_np = loss.cpu().data.numpy()
@@ -616,10 +620,11 @@ class Model2Distributed :
 					new_priority = self.memory.priority(new_error)
 					#print( 'prior = {} / {}'.format(new_priority,self.rBuffer.total()) )
 					self.memory.update(idx,new_priority)
-			
+				self.mutex.release()
+
 			except Exception as e :
 				bashlogger.debug('error : {}',format(e) )
-				
+				print(batch)
 
 			# soft update :
 			soft_update(self.target_critic, self.critic, self.tau)
