@@ -86,10 +86,10 @@ class ActorNN(nn.Module) :
 		xx = self.actor_final( fx )
 		
 		#scale the actions :
-		self.unscaled = F.tanh(xx)
-		self.scaled = self.unscaled * self.action_scaler
+		unscaled = F.tanh(xx)
+		scaled = unscaled * self.action_scaler
 
-		return self.scaled
+		return scaled
 
 class VCriticNN(nn.Module) :
 	def __init__(self,HER=False) :
@@ -215,7 +215,7 @@ class CriticNN(nn.Module) :
 		fx = self.features(x)
 
 		#V value :
-		self.v = self.critic_Vhead( fx )
+		v = self.critic_Vhead( fx )
 		
 
 		a1 = F.relu( self.critic_afc1(a) )
@@ -226,16 +226,16 @@ class CriticNN(nn.Module) :
 		# batch x 256
 
 		if self.dueling :
-			self.advantage = self.critic_ahead(afx)
-			self.out = self.advantage + self.v
+			advantage = self.critic_ahead(afx)
+			out = advantage + v
 		else :
-			self.advantage = self.critic_ahead(afx)
+			advantage = self.critic_ahead(afx)
 			#concat = torch.cat( [ self.v,self.advantage], dim=1)
 			#self.out = self.critic_final(self.advantage)
-			self.preout = self.critic_final1(self.advantage)
-			self.out = self.critic_final2(self.preout)
+			preout = self.critic_final1(advantage)
+			out = self.critic_final2(preout)
 
-		return self.out
+		return out
 
 class ActorCriticNN(nn.Module) :
 	def __init__(self,state_dim=3,action_dim=2,action_scaler=2.0,CNN={'use_cnn':False,'input_size':3},dueling=True,HER=True) :

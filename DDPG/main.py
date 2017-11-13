@@ -6,7 +6,7 @@ from worker import Worker
 from utils.replayBuffer import EXP,PrioritizedReplayBuffer
 from utils.statsLogger import statsLogger
 
-from model import Model,Model2
+from model import Model,Model2, Model2Distributed
 from NN import ActorNN,CriticNN,ActorCriticNN,ActorCriticNN2
 
 import torch
@@ -144,7 +144,8 @@ def main():
 	critic = CriticNN(state_dim=input_dim,action_dim=action_dim,dueling=dueling,CNN=CNN,HER=HER['use_her'])
 	critic.share_memory()
 
-	model = Model2(actor=actor,critic=critic,memory=memory,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=MIN_MEMORY)
+	#model = Model2(actor=actor,critic=critic,memory=memory,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=MIN_MEMORY)
+	model = Model2Distributed(actor=actor,critic=critic,memory=memory,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=MIN_MEMORY)
 	
 	bashlogger.info('Models : created.')
 	if frompath is not None :
