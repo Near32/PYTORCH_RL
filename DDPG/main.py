@@ -72,7 +72,7 @@ def main():
 
 	alphaPER = 0.8
 	
-	lr = 1e-3
+	lr = 3e-3
 	memoryCapacity = 1e6
 	
 	num_worker = 1
