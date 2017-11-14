@@ -40,14 +40,17 @@ class ActorNN(nn.Module) :
 			self.conv3 = nn.Conv2d(32,32, kernel_size=5, stride=2)
 			self.bn3 = nn.BatchNorm2d(32)
 			#self.featx = nn.Linear(448,self.nbr_actions)
-			self.featx = nn.Linear(192,128)
+			#self.featx = nn.Linear(192,128)
+			self.featx = nn.Linear(2592,128)
 		else :
-			self.fc1 = nn.Linear(self.state_dim,256)
+			self.fc1 = nn.Linear(self.state_dim,512)
 			self.fc1.weight.data = init_weights(self.fc1.weight.data.size())
 			#self.bn1 = nn.BatchNorm1d(512)
-			self.fc2 = nn.Linear(256,128)
+			self.fc2 = nn.Linear(512,256)
 			self.fc2.weight.data = init_weights(self.fc2.weight.data.size())	
 			#self.bn2 = nn.BatchNorm1d(256)
+			self.fc3 = nn.Linear(256,128)
+			self.fc3.weight.data = init_weights(self.fc3.weight.data.size())	
 			#self.featx = nn.Linear(448,self.nbr_actions)
 			self.featx = nn.Linear(128,64)
 			
@@ -65,7 +68,7 @@ class ActorNN(nn.Module) :
 			x2 = F.relu( self.bn2(self.conv2(x1) ) )
 			x3 = F.relu( self.bn3(self.conv3(x2) ) )
 			x4 = x3.view( x3.size(0), -1)
-			
+			#print(x4.size())
 			fx = F.relu( self.featx( x4) )
 			# batch x 128 
 		else :
@@ -73,7 +76,9 @@ class ActorNN(nn.Module) :
 			x1 = F.relu( self.fc1(x) )
 			#x2 = F.relu( self.bn2(self.fc2(x1) ) )
 			x2 = F.relu( self.fc2(x1)  )
-			fx = F.relu( self.featx( x2) )
+			x3 = F.relu( self.fc3(x2)  )
+			fx = F.relu( self.featx(x3) )
+			#fx = F.relu( self.featx( x2) )
 			#fx = F.relu( self.featx( x1) )
 			# batch x 128
 	

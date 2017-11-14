@@ -1,6 +1,6 @@
+from __future__ import division
 import os
 import time
-import gym
 
 from worker import Worker
 from utils.replayBuffer import EXP,PrioritizedReplayBuffer, ReplayMemory
@@ -11,6 +11,11 @@ from NN import ActorNN,CriticNN,ActorCriticNN,ActorCriticNN2
 
 import torch
 import torchvision.transforms as T
+
+import gym
+import numpy as np
+
+
 
 import logging
 bashlogger = logging.getLogger("bash logger")
@@ -31,18 +36,30 @@ Tensor = FloatTensor
 dtype = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 '''
 
-def main():
+def main(train=True):
 	#env = 'SpaceInvaders-v0'#gym.make('SpaceInvaders-v0')#.unwrapped
 	#nbr_actions = 6
 	#env = 'Breakout-v0'#gym.make('Breakout-v0')#.unwrapped
 	#nbr_actions = 4
 	#input_size = 3
 	
-	env = 'Pendulum-v0'#gym.make('Breakout-v0')#.unwrapped
+	
+	env = 'Pendulum-v0'
+	#env = 'BipedalWalker-v2'
+	use_cnn = False
+	'''
+	env = 'CarRacing-v0'
+	use_cnn = True
+	'''
 	task = gym.make(env)
+	task.reset()
+	task.render()
+	task.close()
 	action_dim = task.action_space.shape[0]
 	input_dim = task.observation_space.shape[0]
-	action_scaler = task.action_space.high[0]
+	if use_cnn :
+		input_dim = 3
+	action_scaler = float(task.action_space.high[0])
 	'''
 	env = 'MountainCarContinuous-v0'#gym.make('Breakout-v0')#.unwrapped
 	action_dim = 1
@@ -62,22 +79,21 @@ def main():
 	last_sync = 0
 	
 	numep = 20000
-	BATCH_SIZE = 64
+	BATCH_SIZE = 128
 	GAMMA = 0.99
 	TAU = 1e-3
-	MIN_MEMORY = 2e3
-	use_cnn = False
-
+	MIN_MEMORY = 1e3
+	
 	CNN = {'use_cnn':use_cnn, 'input_size':input_dim}
 
 	alphaPER = 0.8
 	
-	lr = 1e-3
+	lr = 1e-4
 	memoryCapacity = 1e6
 	
 	num_worker = 1
 	renderings = [False]*num_worker
-	#renderings[0] = True
+	renderings[0] = True
 	
 	#Dueling :
 	dueling = False
@@ -90,6 +106,7 @@ def main():
 	HER = {'k':k, 'strategy':strategy,'use_her':use_her,'singlegoal':singlegoal}
 
 	global use_cuda
+	
 
 	envpath = './'+env+'/'
 	model_path = envpath+env+'::'
@@ -160,18 +177,34 @@ def main():
 	#################################################
 	#################################################
 	
-	workers = []
-	for i in range(num_worker) :
-		worker = Worker(i,model,env,memory,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,HER=HER,use_cuda=use_cuda,rendering=renderings[i])
-		workers.append(worker)
-		time.sleep(1)
-		worker.start()
+	if train :
+		workers = []
+		for i in range(num_worker) :
+			worker = Worker(i,model,env,memory,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,HER=HER,use_cuda=use_cuda,rendering=renderings[i])
+			workers.append(worker)
+			time.sleep(1)
+			worker.start()
 
-	for i in range(num_worker) :
-		try :
-			workers[i].join()
-		except Exception as e :
-			bashlogger.info(e)
+		for i in range(num_worker) :
+			try :
+				workers[i].join()
+			except Exception as e :
+				bashlogger.info(e)
+	else :		
+		state = task.reset()
+		done = False
+		cumr = 0.0
+		while not done :
+			task.render()
+			if use_cnn:
+				state = state.transpose(2,0,1)
+			action = model.act( torch.FloatTensor(state.astype(np.float32).reshape((1,*state.shape)) ) )
+			action = np.reshape(action, (-1))
+			state,r,done,i = task.step(action)
+			cumr += r
+			
+		print('Episode reward : {}'.format(cumr))
 
 if __name__ == "__main__":
 	main()
+	#main(train=False)

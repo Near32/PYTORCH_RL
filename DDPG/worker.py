@@ -20,7 +20,9 @@ logging.basicConfig(format=FORMAT)
 
 import torch
 import torchvision.transforms as T
+import matplotlib.pyplot as plt
 
+MAX_STEP = 500
 
 
 class Worker :
@@ -112,6 +114,7 @@ class Worker :
 				showcount = 0
 
 				for t in count() :
+					since = time.time()
 					#HER :
 					if HER['use_her'] :
 						evalstate = torch.cat( [state,init_goal], dim=1)
@@ -119,19 +122,20 @@ class Worker :
 						evalstate = state
 
 					action = model.act(evalstate, exploitation=False)
-					action_buffer.append(float(action) )
+					action_buffer.append(action )
 
 					taction = torch.from_numpy(action.astype(np.float32))
 
-					last_state = state
-					state, reward, done, info = get_state(env,action,preprocess=preprocess)
+					last_state = evalstate
+					state, reward, done, info = get_state(env, action,preprocess=preprocess)
 					cumul_reward += float(reward)
 					treward = torch.from_numpy(reward.astype(np.float32))
 
 					if rendering :
-						if showcount >= 10 :
+						if showcount >= 5 :
 							showcount = 0
 							#render(current_state)
+							#plt.imshow(env.render(mode='rgb_array') )
 							env.render()
 						else :
 							showcount +=1
@@ -142,7 +146,6 @@ class Worker :
 					episode_qsa_buffer.append( model.evaluate(evalstate, taction) )
 
 					#Optimize model :
-					since = time.time()
 					retloss = model.optimize(optimizer_critic=optimizers['critic'],optimizer_actor=optimizers['actor'])
 					if retloss is not None :
 						critic_loss,actor_loss, actor_grad = retloss
@@ -154,13 +157,13 @@ class Worker :
 						episode_aloss_buffer.append(0)
 						episode_grad_actor_buffer.append(0)
 
+					
 					elt = time.time() - since
 					f = 1.0/elt
 					meanfreq = (meanfreq*(t+1) + f)/(t+2)
 					#print('{} Hz ; {} seconds.'.format(f,elt) )
 					
-					
-					if done :
+					if done or t> MAX_STEP:
 						episode_durations.append(t+1)
 						episode_reward.append(cumul_reward)
 						meancloss = np.mean(episode_closs_buffer)
@@ -299,27 +302,35 @@ def reward_function(state,goal,eps=1e-1) :
 
 
 def get_state(env,action,preprocess) :
+	action = np.reshape(action, (-1))
 	state, reward, done, info = env.step(action)
-	state = np.reshape(state,(1,-1))
+	if len(state.shape)>=2 :
+		state = state.transpose( (2,0,1) )
+		state = np.ascontiguousarray( state, dtype=np.float32) / 255.0
+		state = torch.from_numpy(state)
+		#state = preprocess(state)
+		#state = state.unsqueeze(0)
+	else :
+		state = np.reshape(state,(1,-1))
+		state = np.ascontiguousarray( state, dtype=np.float32)
+		state = torch.from_numpy(state)
 	reward = np.reshape(reward, (1))
-	#state = state.transpose( (2,0,1) )
-	#state = np.ascontiguousarray( state, dtype=np.float32) / 255.0
-	state = np.ascontiguousarray( state, dtype=np.float32)
-	state = torch.from_numpy(state)
-	#state = preprocess(state)
-	#state = state.unsqueeze(0)
 	
 	return state, reward, done, info
 
 def get_state_reset(env,preprocess) :
 	state = env.reset()
-	state = np.reshape(state,(1,-1))
-	#state = state.transpose( (2,0,1) )
-	#state = np.ascontiguousarray( state, dtype=np.float32) / 255.0
-	state = np.ascontiguousarray( state, dtype=np.float32)
-	state = torch.from_numpy(state)
-	#state = preprocess(state)
-	#state = state.unsqueeze(0)
+	if len(state.shape)>=2 :
+		state = state.transpose( (2,0,1) )
+		state = np.ascontiguousarray( state, dtype=np.float32) / 255.0
+		state = torch.from_numpy(state)
+		#state = preprocess(state)
+		#state = state.unsqueeze(0)
+	else :
+		state = np.reshape(state,(1,-1))
+		state = np.ascontiguousarray( state, dtype=np.float32)
+		state = torch.from_numpy(state)
+	
 	return state
 
 

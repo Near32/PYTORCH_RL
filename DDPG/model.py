@@ -23,7 +23,7 @@ from utils.replayBuffer import TransitionPR,PrioritizedReplayBuffer, ReplayMemor
 TAU = 1e-3
 GAMMA = 0.99
 LR = 1e-3
-USE_CUDA = True
+USE_CUDA = False
 BATCH_SIZE = 256
 
 
@@ -772,13 +772,13 @@ class Model2Distributed :
 
 	
 	def generate_optimizers(self) :
-		optimizer_actor = optim.SGD(self.actor.parameters(), self.lr*1e0)
-		optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e-1)
+		optimizer_actor = optim.Adam(self.actor.parameters(), self.lr*1e0)
+		optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e0)
 
 		return {'critic':optimizer_critic,'actor':optimizer_actor}
 
 
-	def act(self, x,exploitation=False) :
+	def act(self, x,exploitation=True) :
 		#self.actor.eval()
 		
 		#state = Variable( torch.from_numpy(x), volatile=True )
@@ -786,6 +786,7 @@ class Model2Distributed :
 		if self.use_cuda :
 			state = state.cuda()
 		action = self.actor( state).detach()
+		#action = self.target_actor( state).detach()
 		
 		if exploitation :
 			return action.cpu().data.numpy()
@@ -804,6 +805,7 @@ class Model2Distributed :
 			action = action.cuda()
 
 		qsa = self.critic( state, action).detach()
+		#qsa = self.target_critic( state, action).detach()
 		
 		return qsa.cpu().data.numpy()
 
@@ -846,10 +848,10 @@ class Model2Distributed :
 
 				# Create Batch with replayMemory :
 				batch = TransitionPR( *zip(*batch) )
-				next_state_batch = Variable(torch.cat( batch.next_state), requires_grad=False)
-				state_batch = Variable( torch.cat( batch.state) , requires_grad=False)
-				action_batch = Variable( torch.cat( batch.action) , requires_grad=False)
-				reward_batch = Variable( torch.cat( batch.reward ), requires_grad=False ).view((-1))
+				next_state_batch = Variable(torch.cat( batch.next_state))#, requires_grad=False)
+				state_batch = Variable( torch.cat( batch.state) )#, requires_grad=False)
+				action_batch = Variable( torch.cat( batch.action) )#, requires_grad=False)
+				reward_batch = Variable( torch.cat( batch.reward ) )#, requires_grad=False ).view((-1))
 				'''
 				next_state_batch = Variable(torch.cat( batch.next_state) )
 				state_batch = Variable( torch.cat( batch.state) )
@@ -865,8 +867,6 @@ class Model2Distributed :
 
 				
 				# Critic :
-				#before optimization :
-				optimizer_critic.zero_grad()
 				# sample action from next_state, without gradient repercusion :
 				next_taction = self.target_actor(next_state_batch).detach()
 				# evaluate the next state action over the target, without repercusion (faster...) :
@@ -880,26 +880,74 @@ class Model2Distributed :
 				critic_loss = F.smooth_l1_loss(y_pred,y_true)
 				#criterion = nn.MSELoss()
 				#critic_loss = criterion(y_pred,y_true)
+				#before optimization :
+				optimizer_critic.zero_grad()
 				critic_loss.backward()
 				#clamping :
 				#torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
 				optimizer_critic.step()
 				
+				###################################
 				
+				'''
 				# Actor :
-				#before optimization :
-				optimizer_actor.zero_grad()
 				#predict action :
 				pred_action = self.actor(state_batch)
 				#predict associated qvalues :
 				pred_qsa = self.critic(state_batch, pred_action)
+				#pred_qsa = self.target_critic(state_batch, pred_action)
+				
 				# loss :
 				actor_loss = -1.0*torch.mean(torch.sum( pred_qsa) )
+				
+				#actor_loss = F.smooth_l1_loss( pred_qsa, Variable(torch.zeros(pred_qsa.size() )).cuda() )
+				
+				#criterion = nn.MSELoss()
+				#actor_loss = criterion( pred_qsa, Variable(torch.zeros(pred_qsa.size() )).cuda() )
+				
+				#before optimization :
+				optimizer_actor.zero_grad()
 				actor_loss.backward()
 				#clamping :
-				#clampactor = 1e-10#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
+				#clampactor = 1e2#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
 				#torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
 				optimizer_actor.step()
+
+				
+				'''
+				
+				###################################
+				
+				# Actor :
+				#predict action :
+				pred_action = self.actor(state_batch) 
+				var_action = Variable( pred_action.cpu().data, requires_grad=True)
+				if self.use_cuda :
+					var_action_c = var_action.cuda()
+					pred_qsa = self.critic(state_batch, var_action_c)
+				else :
+					pred_qsa = self.critic(state_batch, var_action)
+				#predict associated qvalues :
+				gradout = torch.ones(pred_qsa.size())
+				if self.use_cuda:
+					gradout = gradout.cuda()
+				pred_qsa.backward( gradout )
+
+				self.actor.zero_grad()
+				#before optimization :
+				optimizer_actor.zero_grad()
+				if self.use_cuda :
+					gradcritic = var_action.grad.data.cuda()
+					pred_action.backward( -gradcritic)
+				else :
+					pred_action.backward( -var_action.grad.data)
+				#clamping :
+				clampactor = 1e-2#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
+				torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
+				optimizer_actor.step()
+				# loss :
+				actor_loss = -1.0*torch.mean(torch.sum( pred_qsa) )
+				###################################
 
 				
 				'''
@@ -929,25 +977,16 @@ class Model2Distributed :
 
 			except Exception as e :
 				bashlogger.debug('error : {}',format(e) )
-				print(len(batch) )
-				print(batch[0])
 				raise e
 
 			# soft update :
 			soft_update(self.target_critic, self.critic, self.tau)
 			soft_update(self.target_actor, self.actor, self.tau)
 
-			del batch
-			del next_state_batch 
-			del state_batch 
-			del action_batch 
-			del reward_batch 
-
+			
 			closs = critic_loss.cpu()
 			aloss = actor_loss.cpu()
-			del actor_loss
-			del critic_loss
-
+			
 			return closs.data.numpy(), aloss.data.numpy(), actor_grad
 
 		else :
