@@ -9,7 +9,7 @@ from itertools import count
 import threading
 from utils.replayBuffer import EXP,TransitionPR,PrioritizedReplayBuffer,ReplayMemory
 from utils.statsLogger import statsLogger
-#from utils.histogram import HistogramDebug
+from utils.histogram import HistogramDebug
 
 
 import logging
@@ -83,8 +83,9 @@ class Worker :
 			
 			#accumulateMemory(memory,env,models,preprocess,epsstart=0.5,epsend=0.3,epsdecay=200,k=k,strategy=strategy)
 
-			#hd = HistogramDebug()
-			#hd.setXlimit(-2.5,2.5)
+			hd = HistogramDebug()
+			hd.setXlimit(-2.5,2.5)
+			reward_scaler = 10.0
 
 			for i in range(num_episodes) :
 				bashlogger.info('Episode : {} : memory : {}/{}'.format(i,len(memory),memory.capacity) )
@@ -128,11 +129,14 @@ class Worker :
 
 					last_state = evalstate
 					state, reward, done, info = get_state(env, action,preprocess=preprocess)
+					
+					reward /= reward_scaler
+
 					cumul_reward += float(reward)
 					treward = torch.from_numpy(reward.astype(np.float32))
 
 					if rendering :
-						if showcount >= 5 :
+						if showcount >= 1 :
 							showcount = 0
 							#render(current_state)
 							#plt.imshow(env.render(mode='rgb_array') )
@@ -176,7 +180,8 @@ class Worker :
 						episode_grad_actor.append( meanactorgrad)
 						meanaction = np.mean(action_buffer)
 						sigmaaction = np.std(action_buffer)
-						#hd.append(np.array(action_buffer) )
+						action_buffer = np.array(action_buffer).reshape((-1))
+						hd.append(np.array(action_buffer) )
 
 						log = 'Episode duration : {}'.format(t+1) +'---' +' Action : mu:{:.4f} sig:{:.4f} // Reward : {} // Mean C/A Losses : {:.4f}/{:.4f} // Mean/MaxQsa : {:.4f}/{:.4f} // Mean Actor Grad : {:.8f}'.format(meanaction,sigmaaction,cumul_reward,meancloss,meanaloss,meanqsa,maxqsa,meanactorgrad) +'---'+' {}Hz'.format(meanfreq)
 						bashlogger.info(log)

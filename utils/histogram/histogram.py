@@ -1,7 +1,7 @@
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib
-matplotlib.use("qt4agg")
+matplotlib.use("qt5agg")
 import matplotlib.pyplot as plt
 import time 
 

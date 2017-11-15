@@ -43,22 +43,23 @@ class ActorNN(nn.Module) :
 			#self.featx = nn.Linear(192,128)
 			self.featx = nn.Linear(2592,128)
 		else :
-			self.fc1 = nn.Linear(self.state_dim,512)
+			self.fc1 = nn.Linear(self.state_dim,400)
 			self.fc1.weight.data = init_weights(self.fc1.weight.data.size())
-			#self.bn1 = nn.BatchNorm1d(512)
-			self.fc2 = nn.Linear(512,256)
+			#self.bn1 = nn.BatchNorm1d(400)
+			self.fc2 = nn.Linear(400,300)
 			self.fc2.weight.data = init_weights(self.fc2.weight.data.size())	
-			#self.bn2 = nn.BatchNorm1d(256)
-			self.fc3 = nn.Linear(256,128)
-			self.fc3.weight.data = init_weights(self.fc3.weight.data.size())	
+			#self.bn2 = nn.BatchNorm1d(300)
+			#self.fc3 = nn.Linear(256,128)
+			#self.fc3.weight.data = init_weights(self.fc3.weight.data.size())	
+			#self.bn3 = nn.BatchNorm1d(128)
 			#self.featx = nn.Linear(448,self.nbr_actions)
-			self.featx = nn.Linear(128,64)
+			self.featx = nn.Linear(300,200)
 			
 
 		self.featx.weight.data = init_weights(self.featx.weight.data.size())
 
 		# Actor network :
-		self.actor_final = nn.Linear(64,self.action_dim)
+		self.actor_final = nn.Linear(200,self.action_dim)
 		self.actor_final.weight.data.uniform_(-EPS,EPS)
 
 
@@ -76,9 +77,10 @@ class ActorNN(nn.Module) :
 			x1 = F.relu( self.fc1(x) )
 			#x2 = F.relu( self.bn2(self.fc2(x1) ) )
 			x2 = F.relu( self.fc2(x1)  )
-			x3 = F.relu( self.fc3(x2)  )
-			fx = F.relu( self.featx(x3) )
-			#fx = F.relu( self.featx( x2) )
+			#x3 = F.relu( self.fc3(x2)  )
+			#x3 = F.relu( self.bn3(self.fc3(x2) ) )
+			#fx = F.relu( self.featx(x3) )
+			fx = F.relu( self.featx( x2) )
 			#fx = F.relu( self.featx( x1) )
 			# batch x 128
 	
@@ -155,13 +157,13 @@ class CriticNN(nn.Module) :
 			#self.featx = nn.Linear(448,self.nbr_actions)
 			self.featx = nn.Linear(192,128)
 		else :
-			self.fc1 = nn.Linear(self.state_dim,256)
+			self.fc1 = nn.Linear(self.state_dim,400)
 			self.fc1.weight.data = init_weights(self.fc1.weight.data.size())
-			#self.bn1 = nn.BatchNorm1d(256)
-			#self.fc2 = nn.Linear(512,256)
-			#self.bn2 = nn.BatchNorm1d(256)
+			#self.bn1 = nn.BatchNorm1d(400)
+			self.fc2 = nn.Linear(400,300)
+			#self.bn2 = nn.BatchNorm1d(300)
 			#self.featx = nn.Linear(448,self.nbr_actions)
-			self.featx = nn.Linear(256,128)
+			self.featx = nn.Linear(300,128)
 
 		
 		self.featx.weight.data = init_weights(self.featx.weight.data.size())
@@ -169,34 +171,34 @@ class CriticNN(nn.Module) :
 		# Critic network :
 		## state value path :
 		if self.dueling :
-			self.critic_Vhead = nn.Linear(128,1)
+			self.critic_Vhead = nn.Linear(200,1)
 		else :
-			self.critic_Vhead = nn.Linear(128,64)
+			self.critic_Vhead = nn.Linear(128,128)
 		
 		self.critic_Vhead.weight.data = init_weights(self.critic_Vhead.weight.data.size())
 		
 		## action value path :
-		self.critic_afc1 = nn.Linear(self.action_dim,128)
+		self.critic_afc1 = nn.Linear(self.action_dim,400)
 		self.critic_afc1.weight.data.uniform_(-1e-1,1e-1)
 		#self.critic_afc1.weight.data = init_weights(self.critic_afc1.weight.data.size())
-		#self.critic_afc2 = nn.Linear(256,128)
-		#self.critic_afc2.weight.data.uniform_(-EPS,EPS)
+		self.critic_afc2 = nn.Linear(400,128)
+		self.critic_afc2.weight.data.uniform_(-EPS,EPS)
 
 		if self.dueling :
 			self.critic_ahead = nn.Linear(256,1)
 			self.critic_ahead.weight.data = init_weights(self.critic_ahead.weight.data.size())
 		else :
-			self.critic_ahead = nn.Linear(256,128)
+			self.critic_ahead = nn.Linear(256,200)
 			self.critic_ahead.weight.data = init_weights(self.critic_ahead.weight.data.size())
 			#linear layer, after the concatenation of ahead and vhead :
 			'''
 			self.critic_final = nn.Linear(128,1)
 			self.critic_final.weight.data.uniform_(-EPS,EPS) 
 			'''
-			self.critic_final1 = nn.Linear(128,64)
+			self.critic_final1 = nn.Linear(200,128)
 			self.critic_final1.weight.data = init_weights(self.critic_final1.weight.data.size())
-			self.critic_final2 = nn.Linear(64,1)
-			self.critic_final2.weight.data.uniform_(-EPS,EPS) 
+			self.critic_final2 = nn.Linear(128,1)
+			self.critic_final2.weight.data.uniform_(-EPS*1e-1,EPS*1e-1) 
 
 
 	def features(self,x) :
@@ -212,8 +214,9 @@ class CriticNN(nn.Module) :
 			#x1 = F.relu( self.bn1(self.fc1(x) ) )
 			x1 = F.relu( self.fc1(x) )
 			#x2 = F.relu( self.bn2(self.fc2(x1) ) )
-			#fx = F.relu( self.featx( x2) )
-			fx = F.relu( self.featx( x1) )
+			x2 = F.relu( self.fc2(x1) )
+			fx = F.relu( self.featx( x2) )
+			#fx = F.relu( self.featx( x1) )
 			# batch x 128
 	
 		return fx
@@ -227,10 +230,10 @@ class CriticNN(nn.Module) :
 		
 
 		a1 = F.relu( self.critic_afc1(a) )
-		#a2 = F.relu( self.critic_afc2(a1) )
+		a2 = F.relu( self.critic_afc2(a1) )
 		# batch x 128
-		#afx = torch.cat([ fx, a2], dim=1)
-		afx = torch.cat([ fx, a1], dim=1)
+		afx = torch.cat([ fx, a2], dim=1)
+		#afx = torch.cat([ fx, a1], dim=1)
 		# batch x 256
 
 		if self.dueling :

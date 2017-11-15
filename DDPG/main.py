@@ -82,7 +82,7 @@ def main(train=True):
 	BATCH_SIZE = 128
 	GAMMA = 0.99
 	TAU = 1e-3
-	MIN_MEMORY = 1e3
+	MIN_MEMORY = 3e3
 	
 	CNN = {'use_cnn':use_cnn, 'input_size':input_dim}
 

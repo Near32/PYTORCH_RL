@@ -942,7 +942,7 @@ class Model2Distributed :
 				else :
 					pred_action.backward( -var_action.grad.data)
 				#clamping :
-				clampactor = 1e-2#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
+				clampactor = 5e0#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
 				torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
 				optimizer_actor.step()
 				# loss :
