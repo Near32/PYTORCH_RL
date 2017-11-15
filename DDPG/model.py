@@ -771,7 +771,7 @@ class Model2Distributed :
 		self.algo = algo
 		if self.algo == 'pddpg' :
 			self.previous_actor = copy.deepcopy(self.actor)
-			self.epsilon = 0.5
+			self.epsilon = 0.2
 			if self.use_cuda :
 				self.previous_actor = self.previous_actor.cuda()
 
@@ -1074,36 +1074,7 @@ class Model2Distributed :
 				#torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
 				optimizer_critic.step()
 				
-				###################################
-				'''
 				
-				# Actor :
-				#predict action :
-				pred_action = self.actor(state_batch)
-				#predict associated qvalues :
-				pred_qsa = self.critic(state_batch, pred_action)
-				#pred_qsa = self.target_critic(state_batch, pred_action)
-				
-				# loss :
-				actor_loss = -1.0*torch.mean(torch.sum( pred_qsa) )
-				
-				#actor_loss = F.smooth_l1_loss( pred_qsa, Variable(torch.zeros(pred_qsa.size() )).cuda() )
-				
-				#criterion = nn.MSELoss()
-				#actor_loss = criterion( pred_qsa, Variable(torch.zeros(pred_qsa.size() )).cuda() )
-				
-				#before optimization :
-				optimizer_actor.zero_grad()
-				self.actor.zero_grad()
-				actor_loss.backward()
-				#clamping :
-				#clampactor = 1e2#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
-				#torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
-				optimizer_actor.step()
-
-
-				###################################
-				'''
 				###################################
 				
 				# Actor :

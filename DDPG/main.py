@@ -98,8 +98,8 @@ def main(train=True):
 	#Dueling :
 	dueling = False
 	
-	algo = 'pddpg'
-	#algo = 'ddpg'
+	#algo = 'pddpg'
+	algo = 'ddpg'
 	
 	#HER :
 	k = 2
