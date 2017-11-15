@@ -122,7 +122,11 @@ class Worker :
 					else :
 						evalstate = state
 
-					action = model.act(evalstate, exploitation=False)
+					if i%5 == 0 :
+						action = model.act(evalstate, exploitation=True)
+					else :
+						action = model.act(evalstate, exploitation=False)
+					
 					action_buffer.append(action )
 
 					taction = torch.from_numpy(action.astype(np.float32))
@@ -184,6 +188,8 @@ class Worker :
 						hd.append(np.array(action_buffer) )
 
 						log = 'Episode duration : {}'.format(t+1) +'---' +' Action : mu:{:.4f} sig:{:.4f} // Reward : {} // Mean C/A Losses : {:.4f}/{:.4f} // Mean/MaxQsa : {:.4f}/{:.4f} // Mean Actor Grad : {:.8f}'.format(meanaction,sigmaaction,cumul_reward,meancloss,meanaloss,meanqsa,maxqsa,meanactorgrad) +'---'+' {}Hz'.format(meanfreq)
+						if i%5 == 0:
+							log = 'EVAL :: ' + log
 						bashlogger.info(log)
 						if logger is not None :
 							new = {'episodes':[i],'duration':[t+1],'reward':[cumul_reward],'mean frequency':[meanfreq],'critic loss':[meancloss],'actor loss':[meanaloss],'max qsa':[maxqsa],'mean qsa':[meanqsa],'mean action':[meanaction]}

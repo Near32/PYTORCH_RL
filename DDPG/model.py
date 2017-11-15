@@ -769,6 +769,11 @@ class Model2Distributed :
 		hard_update(self.target_critic, self.critic)
 
 		self.algo = algo
+		if self.algo == 'pddpg' :
+			self.previous_actor = copy.deepcopy(self.actor)
+			self.epsilon = 0.5
+			if self.use_cuda :
+				self.previous_actor = self.previous_actor.cuda()
 
 	
 	def generate_optimizers(self) :
@@ -881,15 +886,18 @@ class Model2Distributed :
 				#criterion = nn.MSELoss()
 				#critic_loss = criterion(y_pred,y_true)
 				#before optimization :
+				self.critic.zero_grad()
+				self.actor.zero_grad()
 				optimizer_critic.zero_grad()
+				optimizer_actor.zero_grad()
 				critic_loss.backward()
 				#clamping :
 				#torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
 				optimizer_critic.step()
 				
 				###################################
-				
 				'''
+				
 				# Actor :
 				#predict action :
 				pred_action = self.actor(state_batch)
@@ -907,15 +915,16 @@ class Model2Distributed :
 				
 				#before optimization :
 				optimizer_actor.zero_grad()
+				self.actor.zero_grad()
 				actor_loss.backward()
 				#clamping :
 				#clampactor = 1e2#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
 				#torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
 				optimizer_actor.step()
 
-				
+
+				###################################
 				'''
-				
 				###################################
 				
 				# Actor :
@@ -933,8 +942,10 @@ class Model2Distributed :
 					gradout = gradout.cuda()
 				pred_qsa.backward( gradout )
 
-				self.actor.zero_grad()
 				#before optimization :
+				self.critic.zero_grad()
+				self.actor.zero_grad()
+				optimizer_critic.zero_grad()
 				optimizer_actor.zero_grad()
 				if self.use_cuda :
 					gradcritic = var_action.grad.data.cuda()
@@ -947,6 +958,208 @@ class Model2Distributed :
 				optimizer_actor.step()
 				# loss :
 				actor_loss = -1.0*torch.mean(torch.sum( pred_qsa) )
+				
+				###################################
+
+				
+				'''
+				critic_grad = 0.0
+				for p in self.critic.parameters() :
+					critic_grad += np.mean(p.grad.cpu().data.numpy())
+				print( 'Mean Critic Grad : {}'.format(critic_grad) )
+				'''
+				
+				actor_grad = 0.0
+				for p in self.actor.parameters() :
+					actor_grad += np.max( np.abs(p.grad.cpu().data.numpy() ) )
+				#print( 'Mean Actor Grad : {}'.format(actor_grad) )
+				
+
+				#UPDATE THE PR :
+				if isinstance(self.memory, PrioritizedReplayBuffer) :
+					self.mutex.acquire()
+					loss = torch.abs(actor_loss) + torch.abs(critic_loss)
+					#loss = torch.abs(actor_loss) #+ torch.abs(critic_loss)
+					loss_np = loss.cpu().data.numpy()
+					for (idx, new_error) in zip(batch.idx,loss_np) :
+						new_priority = self.memory.priority(new_error)
+						#print( 'prior = {} / {}'.format(new_priority,self.rBuffer.total()) )
+						self.memory.update(idx,new_priority)
+					self.mutex.release()
+
+			except Exception as e :
+				bashlogger.debug('error : {}',format(e) )
+				raise e
+
+			# soft update :
+			soft_update(self.target_critic, self.critic, self.tau)
+			soft_update(self.target_actor, self.actor, self.tau)
+
+			
+			closs = critic_loss.cpu()
+			aloss = actor_loss.cpu()
+			
+			return closs.data.numpy(), aloss.data.numpy(), actor_grad
+
+		elif self.algo == 'pddpg' :
+			try :
+				if len(self.memory) < self.MIN_MEMORY :
+					return
+				
+				#Create Batch 
+				self.mutex.acquire()
+				
+				if isinstance(self.memory, PrioritizedReplayBuffer) :
+					#with PR :
+					prioritysum = self.memory.total()
+					randexp = np.random.random(size=self.batch_size)*prioritysum
+					batch = list()
+					for i in range(self.batch_size):
+						try :
+							el = self.memory.get(randexp[i])
+							batch.append(el)
+						except TypeError as e :
+							continue
+							#print('REPLAY BUFFER EXCEPTION...')
+				else :
+					#with random RB :
+					batch = self.memory.sample(self.batch_size)
+
+				self.mutex.release()
+
+				if len(batch) == 0 :
+					return
+
+				# Create Batch with replayMemory :
+				batch = TransitionPR( *zip(*batch) )
+				next_state_batch = Variable(torch.cat( batch.next_state))#, requires_grad=False)
+				state_batch = Variable( torch.cat( batch.state) )#, requires_grad=False)
+				action_batch = Variable( torch.cat( batch.action) )#, requires_grad=False)
+				reward_batch = Variable( torch.cat( batch.reward ) )#, requires_grad=False ).view((-1))
+				'''
+				next_state_batch = Variable(torch.cat( batch.next_state) )
+				state_batch = Variable( torch.cat( batch.state) )
+				action_batch = Variable( torch.cat( batch.action) )
+				reward_batch = Variable( torch.cat( batch.reward ) ).view((-1,1))
+				'''
+				
+				if self.use_cuda :
+					next_state_batch = next_state_batch.cuda()
+					state_batch = state_batch.cuda()
+					action_batch = action_batch.cuda()
+					reward_batch = reward_batch.cuda()
+
+				
+				# Critic :
+				# sample action from next_state, without gradient repercusion :
+				next_taction = self.target_actor(next_state_batch).detach()
+				# evaluate the next state action over the target, without repercusion (faster...) :
+				next_tqsa = torch.squeeze( self.target_critic( next_state_batch, next_taction).detach() ).view((-1))
+				# Supervise loss :
+				## y_true :
+				y_true = reward_batch + self.gamma*next_tqsa 
+				## y_pred :
+				y_pred = torch.squeeze( self.critic(state_batch,action_batch) )
+				## loss :
+				critic_loss = F.smooth_l1_loss(y_pred,y_true)
+				#criterion = nn.MSELoss()
+				#critic_loss = criterion(y_pred,y_true)
+				#before optimization :
+				self.critic.zero_grad()
+				self.actor.zero_grad()
+				optimizer_critic.zero_grad()
+				optimizer_actor.zero_grad()
+				critic_loss.backward()
+				#clamping :
+				#torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
+				optimizer_critic.step()
+				
+				###################################
+				'''
+				
+				# Actor :
+				#predict action :
+				pred_action = self.actor(state_batch)
+				#predict associated qvalues :
+				pred_qsa = self.critic(state_batch, pred_action)
+				#pred_qsa = self.target_critic(state_batch, pred_action)
+				
+				# loss :
+				actor_loss = -1.0*torch.mean(torch.sum( pred_qsa) )
+				
+				#actor_loss = F.smooth_l1_loss( pred_qsa, Variable(torch.zeros(pred_qsa.size() )).cuda() )
+				
+				#criterion = nn.MSELoss()
+				#actor_loss = criterion( pred_qsa, Variable(torch.zeros(pred_qsa.size() )).cuda() )
+				
+				#before optimization :
+				optimizer_actor.zero_grad()
+				self.actor.zero_grad()
+				actor_loss.backward()
+				#clamping :
+				#clampactor = 1e2#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
+				#torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
+				optimizer_actor.step()
+
+
+				###################################
+				'''
+				###################################
+				
+				# Actor :
+				#predict action with old weights :
+				pred_old_action = self.previous_actor(state_batch)
+				#predict action with current weights :
+				pred_action = self.actor(state_batch) 
+				
+				var_action = Variable( pred_action.cpu().data, requires_grad=True)
+				var_old_action = Variable( pred_old_action.cpu().data, requires_grad=True)
+				
+				if self.use_cuda :
+					var_action_c = var_action.cuda()
+					var_old_action_c = var_old_action.cuda()
+					#predict associated qvalues :
+					pred_qsa = self.critic(state_batch, var_action_c)
+					pred_old_qsa = self.critic(state_batch, var_old_action_c)
+				else :
+					#predict associated qvalues :
+					pred_qsa = self.critic(state_batch, var_action)
+					pred_old_qsa = self.critic(state_batch, var_old_action)
+				
+				#helper vars :
+				clipped_m = (1.0-self.epsilon)#*torch.ones(ratio.size())
+				clipped_p = (1.0+self.epsilon)#*torch.ones(ratio.size())
+				gradout = torch.ones(pred_qsa.size())
+				if self.use_cuda:
+					gradout = gradout.cuda()
+					
+				#compute ratios :
+				ratio = pred_qsa/pred_old_qsa
+				clipped_ratio = ratio.clamp(clipped_m,clipped_p)
+				p_actor_loss = torch.min(ratio,clipped_ratio)
+				p_actor_loss.backward( gradout )
+
+				#before optimization :
+				self.critic.zero_grad()
+				self.actor.zero_grad()
+				optimizer_critic.zero_grad()
+				optimizer_actor.zero_grad()
+				if self.use_cuda :
+					gradcritic = var_action.grad.data.cuda()
+					pred_action.backward( -gradcritic)
+				else :
+					pred_action.backward( -var_action.grad.data)
+				#clamping :
+				#clampactor = 5e1#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
+				#torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
+				
+				#proximal update, before the update of the weights :
+				hard_update(self.previous_actor, self.actor)
+				#update of the weights :
+				optimizer_actor.step()
+				# loss :
+				actor_loss = -1.0*torch.mean( pred_qsa )
+				
 				###################################
 
 				

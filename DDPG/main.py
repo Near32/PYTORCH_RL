@@ -82,7 +82,7 @@ def main(train=True):
 	BATCH_SIZE = 128
 	GAMMA = 0.99
 	TAU = 1e-3
-	MIN_MEMORY = 3e3
+	MIN_MEMORY = 3e1
 	
 	CNN = {'use_cnn':use_cnn, 'input_size':input_dim}
 
@@ -97,6 +97,9 @@ def main(train=True):
 	
 	#Dueling :
 	dueling = False
+	
+	algo = 'pddpg'
+	#algo = 'ddpg'
 	
 	#HER :
 	k = 2
@@ -114,7 +117,7 @@ def main(train=True):
 	if dueling :
 		model_path +='Dueling'
 	
-	model_path += 'DDPG+PR+'
+	model_path += algo+'+PR+'
 
 	if HER['use_her'] :
 		model_path += 'HER-alpha'+str(alphaPER)+'-k'+str(k)+strategy
@@ -163,7 +166,7 @@ def main(train=True):
 	critic.share_memory()
 
 	#model = Model2(actor=actor,critic=critic,memory=memory,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=MIN_MEMORY)
-	model = Model2Distributed(actor=actor,critic=critic,memory=memory,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=MIN_MEMORY)
+	model = Model2Distributed(actor=actor,critic=critic,memory=memory,algo=algo,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=MIN_MEMORY)
 	
 	bashlogger.info('Models : created.')
 	if frompath is not None :
