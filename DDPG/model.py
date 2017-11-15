@@ -18,7 +18,7 @@ logging.basicConfig(format=FORMAT)
 
 from NN import ActorCriticNN
 from utils.utils import soft_update, hard_update, OrnsteinUhlenbeckNoise
-from utils.replayBuffer import TransitionPR,PrioritizedReplayBuffer, ReplayMemory
+from utils.replayBuffer import EXP,TransitionPR,PrioritizedReplayBuffer, ReplayMemory
 
 TAU = 1e-3
 GAMMA = 0.99
@@ -857,6 +857,7 @@ class Model2Distributed :
 				state_batch = Variable( torch.cat( batch.state) )#, requires_grad=False)
 				action_batch = Variable( torch.cat( batch.action) )#, requires_grad=False)
 				reward_batch = Variable( torch.cat( batch.reward ) )#, requires_grad=False ).view((-1))
+				terminal_batch = Variable( torch.cat( batch.done ) )
 				'''
 				next_state_batch = Variable(torch.cat( batch.next_state) )
 				state_batch = Variable( torch.cat( batch.state) )
@@ -869,27 +870,30 @@ class Model2Distributed :
 					state_batch = state_batch.cuda()
 					action_batch = action_batch.cuda()
 					reward_batch = reward_batch.cuda()
+					terminal_batch = terminal_batch.cuda()
 
 				
 				# Critic :
+				#before optimization :
+				self.critic.zero_grad()
+				self.actor.zero_grad()
+				optimizer_critic.zero_grad()
+				optimizer_actor.zero_grad()
 				# sample action from next_state, without gradient repercusion :
 				next_taction = self.target_actor(next_state_batch).detach()
 				# evaluate the next state action over the target, without repercusion (faster...) :
 				next_tqsa = torch.squeeze( self.target_critic( next_state_batch, next_taction).detach() ).view((-1))
 				# Supervise loss :
 				## y_true :
-				y_true = reward_batch + self.gamma*next_tqsa 
+				y_true = reward_batch + (1.0-terminal_batch)*self.gamma*next_tqsa
+				#print(torch.cat([y_true.view((-1,1)),terminal_batch.view((-1,1))],dim=1) )
+
 				## y_pred :
 				y_pred = torch.squeeze( self.critic(state_batch,action_batch) )
 				## loss :
 				critic_loss = F.smooth_l1_loss(y_pred,y_true)
 				#criterion = nn.MSELoss()
 				#critic_loss = criterion(y_pred,y_true)
-				#before optimization :
-				self.critic.zero_grad()
-				self.actor.zero_grad()
-				optimizer_critic.zero_grad()
-				optimizer_actor.zero_grad()
 				critic_loss.backward()
 				#clamping :
 				#torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
@@ -928,6 +932,12 @@ class Model2Distributed :
 				###################################
 				
 				# Actor :
+				#before optimization :
+				self.critic.zero_grad()
+				self.actor.zero_grad()
+				optimizer_critic.zero_grad()
+				optimizer_actor.zero_grad()
+				
 				#predict action :
 				pred_action = self.actor(state_batch) 
 				var_action = Variable( pred_action.cpu().data, requires_grad=True)
@@ -942,16 +952,17 @@ class Model2Distributed :
 					gradout = gradout.cuda()
 				pred_qsa.backward( gradout )
 
-				#before optimization :
-				self.critic.zero_grad()
-				self.actor.zero_grad()
-				optimizer_critic.zero_grad()
-				optimizer_actor.zero_grad()
 				if self.use_cuda :
 					gradcritic = var_action.grad.data.cuda()
-					pred_action.backward( -gradcritic)
 				else :
-					pred_action.backward( -var_action.grad.data)
+					gradcritic = var_action.grad.data
+
+				pred_action.backward( -gradcritic)
+				
+				#weight decay :
+				decay_loss = 0.5*sum( [torch.mean(param*param) for param in self.actor.parameters()])
+				decay_loss.backward()
+
 				#clamping :
 				clampactor = 5e0#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
 				torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
@@ -1175,6 +1186,19 @@ class Model2Distributed :
 
 		else :
 			raise NotImplemented
+
+
+	def compute_returns(self,exp_buffer) :
+		if self.algo == 'pg' :
+			cumr = 0.0 
+			for i in reversed(range(len(exp_buffer)) ) :
+				cumr = exp_buffer[i].reward + self.gamma*cumr
+				exp_buffer[i] = EXP(exp_buffer[i].state,exp_buffer[i].action,exp_buffer[i].next_state,cumr,exp_buffer[i].done)
+			return exp_buffer
+		elif self.algo == 'ddpg' :
+			return exp_buffer
+		else :
+			return exp_buffer
 
 
 	def save(self,path) :

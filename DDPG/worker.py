@@ -148,8 +148,11 @@ class Worker :
 						else :
 							showcount +=1
 
-
-					episode_buffer.append( EXP(last_state,taction,state,treward,done) )
+					terminal = 0.0 
+					if done :
+						terminal = 1.0
+					tterminal = terminal*torch.ones((1))
+					episode_buffer.append( EXP(last_state,taction,state,treward,tterminal) )
 
 					episode_qsa_buffer.append( model.evaluate(evalstate, taction) )
 
@@ -200,7 +203,9 @@ class Worker :
 							bashlogger.info('Model saved : {}'.format(path) )
 						break
 
-
+				#compute returns :
+				episode_buffer = model.compute_returns(episode_buffer)
+				
 				#Let us add this episode_buffer to the replayBuffer :
 				if HER['use_her'] :
 					for itexp in range(len(episode_buffer)) :

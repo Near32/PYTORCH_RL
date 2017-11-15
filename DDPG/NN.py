@@ -5,7 +5,7 @@ from torch.autograd import Variable
 import numpy as np
 
 
-EPS = 3e-3
+EPS = 3e-1
 
 def init_weights(size):
 	v = 1. / np.sqrt(size[0])
