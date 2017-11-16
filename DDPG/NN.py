@@ -74,13 +74,13 @@ class ActorNN(nn.Module) :
 			# batch x 128 
 		else :
 			#x1 = F.relu( self.bn1(self.fc1(x) ) )
-			x1 = F.relu( self.fc1(x) )
+			x1 = F.leaky_relu( self.fc1(x), 0.1 )
 			#x2 = F.relu( self.bn2(self.fc2(x1) ) )
-			x2 = F.relu( self.fc2(x1)  )
+			x2 = F.leaky_relu( self.fc2(x1), 0.1  )
 			#x3 = F.relu( self.fc3(x2)  )
 			#x3 = F.relu( self.bn3(self.fc3(x2) ) )
 			#fx = F.relu( self.featx(x3) )
-			fx = F.relu( self.featx( x2) )
+			fx = F.leaky_relu( self.featx( x2), 0.1 )
 			#fx = F.relu( self.featx( x1) )
 			# batch x 128
 	

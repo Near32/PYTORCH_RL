@@ -895,6 +895,11 @@ class Model2Distributed :
 				#criterion = nn.MSELoss()
 				#critic_loss = criterion(y_pred,y_true)
 				critic_loss.backward()
+				
+				#weight decay :
+				decay_loss = 0.5*sum( [torch.mean(param*param) for param in self.critic.parameters()])
+				decay_loss.backward()
+
 				#clamping :
 				#torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
 				optimizer_critic.step()
