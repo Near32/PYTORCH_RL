@@ -12,7 +12,7 @@ def init_weights(size):
 	return torch.Tensor(size).uniform_(-v, v)
 
 class ActorNN(nn.Module) :
-	def __init__(self,state_dim=3,action_dim=2,action_scaler=2.0,CNN={'use_cnn':False,'input_size':3},HER=True) :
+	def __init__(self,state_dim=3,action_dim=2,action_scaler=2.0,CNN={'use_cnn':False,'input_size':3},HER=True,actfn= lambda x : F.leaky_relu(x, 0.1) ) :
 		super(ActorNN,self).__init__()
 		
 		self.state_dim = state_dim
@@ -31,6 +31,7 @@ class ActorNN(nn.Module) :
 		if self.HER :
 			self.state_dim *= 2
 
+		self.actfn = actfn
 		#Features :
 		if self.CNN['use_cnn'] :
 			self.conv1 = nn.Conv2d(self.state_dim,16, kernel_size=5, stride=2)
@@ -74,13 +75,16 @@ class ActorNN(nn.Module) :
 			# batch x 128 
 		else :
 			#x1 = F.relu( self.bn1(self.fc1(x) ) )
-			x1 = F.leaky_relu( self.fc1(x), 0.1 )
+			#x1 = F.leaky_relu( self.fc1(x), 0.1 )
+			x1 = self.actfn( self.fc1(x) )
 			#x2 = F.relu( self.bn2(self.fc2(x1) ) )
-			x2 = F.leaky_relu( self.fc2(x1), 0.1  )
+			#x2 = F.leaky_relu( self.fc2(x1), 0.1  )
+			x2 = self.actfn( self.fc2(x1) )
 			#x3 = F.relu( self.fc3(x2)  )
 			#x3 = F.relu( self.bn3(self.fc3(x2) ) )
 			#fx = F.relu( self.featx(x3) )
-			fx = F.leaky_relu( self.featx( x2), 0.1 )
+			#fx = F.leaky_relu( self.featx(x2), 0.1  )
+			fx = self.actfn( self.featx( x2) )
 			#fx = F.relu( self.featx( x1) )
 			# batch x 128
 	
@@ -90,7 +94,7 @@ class ActorNN(nn.Module) :
 		
 		fx = self.features(x)
 
-		xx = self.actor_final( fx )
+		xx = self.actfn( self.actor_final( fx ) )
 		
 		#scale the actions :
 		unscaled = F.tanh(xx)
@@ -126,7 +130,7 @@ class VCriticNN(nn.Module) :
 
 
 class CriticNN(nn.Module) :
-	def __init__(self,state_dim=3,action_dim=2,CNN={'use_cnn':False,'input_size':3},dueling=True,HER=True) :
+	def __init__(self,state_dim=3,action_dim=2,CNN={'use_cnn':False,'input_size':3},dueling=True,HER=True,actfn= lambda x : F.leaky_relu(x, 0.1) ) :
 		super(CriticNN,self).__init__()
 		
 		self.state_dim = state_dim
@@ -145,6 +149,8 @@ class CriticNN(nn.Module) :
 		self.HER = HER
 		if self.HER :
 			self.state_dim *= 2
+
+		self.actfn = actfn
 
 		#Features :
 		if self.CNN['use_cnn'] :
@@ -229,23 +235,23 @@ class CriticNN(nn.Module) :
 		v = self.critic_Vhead( fx )
 		
 
-		a1 = F.relu( self.critic_afc1(a) )
-		a2 = F.relu( self.critic_afc2(a1) )
+		a1 = self.actfn( self.critic_afc1(a) )
+		a2 = self.actfn( self.critic_afc2(a1) )
 		# batch x 128
 		afx = torch.cat([ fx, a2], dim=1)
 		#afx = torch.cat([ fx, a1], dim=1)
 		# batch x 256
 
 		if self.dueling :
-			advantage = self.critic_ahead(afx)
+			advantage = self.actfn( self.critic_ahead(afx) )
 			out = advantage + v
 		else :
-			advantage = self.critic_ahead(afx)
+			advantage = self.actfn( self.critic_ahead(afx) )
 			#concat = torch.cat( [ v,advantage], dim=1)
 			'''
 			out = self.critic_final(advantage)
 			'''
-			preout = self.critic_final1(advantage)
+			preout = self.actfn( self.critic_final1(advantage) )
 			out = self.critic_final2(preout)
 
 		return out
