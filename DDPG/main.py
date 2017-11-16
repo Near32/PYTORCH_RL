@@ -117,12 +117,17 @@ def main(train=True):
 	if dueling :
 		model_path +='Dueling'
 	
-	model_path += algo+'+PR+'
+	model_path += algo
+
+	use_pr = False
+
+	if use_pr :
+		model_path += '-PR+'+'alpha'+str(alphaPER)
 
 	if HER['use_her'] :
-		model_path += 'HER-alpha'+str(alphaPER)+'-k'+str(k)+strategy
+		model_path += '-HER'+'+k+'+str(k)+strategy
 
-	model_path += '-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
+	model_path += '-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
 	
 	#mkdir :
 	if not os.path.exists(envpath) :
@@ -138,8 +143,10 @@ def main(train=True):
 		frompath = os.path.join(model_path,savings[0])
 
 
-	#memory = PrioritizedReplayBuffer(capacity=memoryCapacity,alpha=alphaPER)
-	memory = ReplayMemory(capacity=memoryCapacity)
+	if use_pr :
+		memory = PrioritizedReplayBuffer(capacity=memoryCapacity,alpha=alphaPER)
+	else :
+		memory = ReplayMemory(capacity=memoryCapacity)
 	bashlogger.info('Memory : ok.')
 
 	
@@ -209,5 +216,5 @@ def main(train=True):
 		print('Episode reward : {}'.format(cumr))
 
 if __name__ == "__main__":
-	main()
-	#main(train=False)
+	#main()
+	main(train=False)
