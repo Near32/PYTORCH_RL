@@ -9,7 +9,7 @@ from itertools import count
 import threading
 from utils.replayBuffer import EXP,TransitionPR,PrioritizedReplayBuffer,ReplayMemory
 from utils.statsLogger import statsLogger
-from utils.histogram import HistogramDebug
+#from utils.histogram import HistogramDebug
 
 
 import logging
@@ -20,7 +20,7 @@ logging.basicConfig(format=FORMAT)
 
 import torch
 import torchvision.transforms as T
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 
 MAX_STEP = 500
 
@@ -83,8 +83,11 @@ class Worker :
 			
 			#accumulateMemory(memory,env,models,preprocess,epsstart=0.5,epsend=0.3,epsdecay=200,k=k,strategy=strategy)
 
-			hd = HistogramDebug()
-			hd.setXlimit(-2.5,2.5)
+			usehd = False
+			if usehd :
+				from utils.histogram import HistogramDebug
+				hd = HistogramDebug()
+				hd.setXlimit(-2.5,2.5)
 			reward_scaler = 10.0
 
 			for i in range(num_episodes) :
@@ -188,7 +191,8 @@ class Worker :
 						meanaction = np.mean(action_buffer)
 						sigmaaction = np.std(action_buffer)
 						action_buffer = np.array(action_buffer).reshape((-1))
-						hd.append(np.array(action_buffer) )
+						
+						if usehd : hd.append(np.array(action_buffer) )
 
 						log = 'Episode duration : {}'.format(t+1) +'---' +' Action : mu:{:.4f} sig:{:.4f} // Reward : {} // Mean C/A Losses : {:.4f}/{:.4f} // Mean/MaxQsa : {:.4f}/{:.4f} // Mean Actor Grad : {:.8f}'.format(meanaction,sigmaaction,cumul_reward,meancloss,meanaloss,meanqsa,maxqsa,meanactorgrad) +'---'+' {}Hz'.format(meanfreq)
 						if i%5 == 0:
@@ -205,7 +209,7 @@ class Worker :
 
 				#compute returns :
 				episode_buffer = model.compute_returns(episode_buffer)
-				
+
 				#Let us add this episode_buffer to the replayBuffer :
 				if HER['use_her'] :
 					for itexp in range(len(episode_buffer)) :

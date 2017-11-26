@@ -88,10 +88,10 @@ def main(train=True):
 
 	alphaPER = 0.8
 	
-	lr = 1e-4
+	lr = 1e-6
 	memoryCapacity = 1e6
 	
-	num_worker = 1
+	num_worker = 2
 	renderings = [False]*num_worker
 	renderings[0] = True
 	
@@ -216,5 +216,5 @@ def main(train=True):
 		print('Episode reward : {}'.format(cumr))
 
 if __name__ == "__main__":
-	#main()
-	main(train=False)
+	main()
+	#main(train=False)

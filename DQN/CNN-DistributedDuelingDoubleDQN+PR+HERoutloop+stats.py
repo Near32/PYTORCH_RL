@@ -1,14 +1,17 @@
-import gym
+from __future__ import division
+
 import math
 import random
 import os
+
 import numpy as np
-import matplotlib
+
 import matplotlib.pyplot as plt
 from collections import namedtuple
 from itertools import count
 from copy import deepcopy
 from PIL import Image
+
 import time
 
 import torch
@@ -18,14 +21,18 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 import threading
+from threading import Lock
+import copy
+
 from utils.replayBuffer import EXP,PrioritizedReplayBuffer
 from utils.statsLogger import statsLogger
-
+from utils.utils import hard_update, soft_update
 
 import torchvision.transforms as T
 import logging
-import copy
-import random
+
+import gym
+
 
 
 bashlogger = logging.getLogger("bash logger")
@@ -113,21 +120,23 @@ class DQN_HER(nn.Module) :
 
 		self.actfn = actfn
 
-		self.conv1 = nn.Conv2d(3,16, kernel_size=5, stride=2)
+		self.conv1 = nn.Conv2d(3*2,16, kernel_size=5, stride=2)
 		self.bn1 = nn.BatchNorm2d(16)
 		self.conv2 = nn.Conv2d(16,32, kernel_size=5, stride=2)
 		self.bn2 = nn.BatchNorm2d(32)
 		self.conv3 = nn.Conv2d(32,32, kernel_size=5, stride=2)
 		self.bn3 = nn.BatchNorm2d(32)
 		#self.head = nn.Linear(448,self.nbr_actions)
-		self.head = nn.Linear(192,self.nbr_actions)
+		self.f = nn.Linear(1120,256)
+		self.head = nn.Linear(256,self.nbr_actions)
 
 	def forward(self, x) :
 		x = self.actfn( self.bn1(self.conv1(x) ) )
 		x = self.actfn( self.bn2(self.conv2(x) ) )
 		x = self.actfn( self.bn3(self.conv3(x) ) )
 		x = x.view( x.size(0), -1)
-		x = self.head( x )
+		fx = self.actfn( self.f( x ) )
+		x = self.head( fx )
 		return x
 
 
@@ -318,113 +327,6 @@ def select_action(model,state,steps_done=[],epsend=0.05,epsstart=0.9,epsdecay=20
 		return LongTensor( [[random.randrange(nbr_actions) ] ] )
 
 
-
-def optimize_model(model,model_,memory,optimizer) :
-	model.train()
-	model_.eval()
-
-	try :
-		global last_sync
-		global use_cuda
-		global MIN_MEMORY
-		global nbr_actions
-		
-		if len(memory) < MIN_MEMORY :
-			return
-		
-		#Create Batch with PR :
-		prioritysum = memory.total()
-		randexp = np.random.random(size=BATCH_SIZE)*prioritysum
-		batch = list()
-		for i in range(BATCH_SIZE):
-			try :
-				el = memory.get(randexp[i])
-				batch.append(el)
-			except TypeError as e :
-				continue
-				#print('REPLAY BUFFER EXCEPTION...')
-		
-		batch = TransitionPR( *zip(*batch) )
-		
-		# Create Batch with replayMemory :
-		#transitions = memory.sample(BATCH_SIZE)
-		#batch = Transition(*zip(*transitions) )
-
-		next_state_batch = Variable(torch.cat( batch.next_state), requires_grad=False)
-		state_batch = Variable( torch.cat( batch.state) , requires_grad=False)
-		action_batch = Variable( torch.cat( batch.action) , requires_grad=False)
-		reward_batch = Variable( torch.cat( batch.reward ), requires_grad=False ).view((-1,1))
-		
-		if use_cuda :
-			next_state_batch = next_state_batch.cuda()
-			state_batch = state_batch.cuda()
-			action_batch = action_batch.cuda()
-			reward_batch = reward_batch.cuda()
-
-		state_action_values = model(state_batch)
-		#state_action_values_g = state_action_values.gather(1,action_batch)
-		
-		#next_state_values = model(non_final_next_states)
-		next_state_values = model(next_state_batch)
-		data  = next_state_values.max(1)
-		argmax_a_next_state_values = data[1]
-		max_a_next_state_values = data[0]
-		
-		#TODO : find the correct way to index :
-		#next_state_values__argmax_a = model_(next_state_batch)[:,argmax_a_next_state_values]
-		#next_state_values__argmax_a = model_(next_state_batch)[:,argmax_a_next_state_values.cpu().data]
-		next_state_values_ = Variable( model_(next_state_batch).cpu().data )
-		## we do not want the framework to propagate any gradients through our model. It is a fixed model.
-		## also it induice a huge memory issue...
-
-		np_argmax = list(argmax_a_next_state_values.cpu().data.view((-1)))
-		snext_state_values_ = torch.cat( [ next_state_values_[i,argmax] for i,argmax in enumerate(np_argmax) ] ).view((-1,1))
-
-		next_state_values__argmax_a = torch.cat( [ snext_state_values_ for i in range(nbr_actions) ], dim=1)
-		
-		
-		reward_batch = torch.cat( [reward_batch for i in range(nbr_actions)], dim=1)
-		# Compute the expected Q values
-		gamma_next = (next_state_values__argmax_a * GAMMA).type(FloatTensor)
-		expected_state_action_values = gamma_next + reward_batch
-
-		# Compute Huber loss
-		#loss = F.smooth_l1_loss(state_action_values_g, expected_state_action_values)
-		loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
-		
-		# Optimize the model
-		optimizer.zero_grad()
-		loss.backward()
-		
-	except Exception as e :
-		#TODO : find what is the reason of this error in backward...
-		#"leaf variable was used in an inplace operation."
-		bashlogger.exception('Error in optimizer_model : {}'.format(e) )
-		
-	for param in model.parameters():
-	    if param.grad is not None :
-	    	if param.grad.data is not None :
-	    		param.grad.data.clamp_(-1, 1)
-
-	optimizer.step()
-
-	#UPDATE THE PR :
-	loss_np = loss.cpu().data.numpy()
-	for (idx, new_error) in zip(batch.idx,loss_np) :
-		new_priority = memory.priority(new_error)
-		#print( 'prior = {} / {}'.format(new_priority,self.rBuffer.total()) )
-		memory.update(idx,new_priority)
-
-	del batch 
-	del next_state_batch
-	del state_batch
-	del action_batch
-	del reward_batch
-	
-
-	return loss_np
-
-
 def render(frame) :
 	if use_cuda :
 		plt.imshow( frame.cpu().squeeze(0).permute( 1, 2 ,0 ).numpy(), interpolation='none')
@@ -499,7 +401,8 @@ class Worker :
 
 		self.optimizer.zero_grad()
 
-		#update model :
+		print('OPTIMIZATION')
+		
 		for wparam, mparam in zip(self.wmodel.parameters(), self.model.parameters() ) :
 			if mparam.grad :
 				mparam.grad.copy_( mparam.grad + wparam.grad )
@@ -628,7 +531,7 @@ class Worker :
 			global MIN_MEMORY
 			i = 0
 			while len(memory) < MIN_MEMORY :
-				bashlogger.info('Episode : {} : memory : {}/{}'.format(i,len(memory),memory.capacity) )
+				bashlogger.info('ACCUMULATE MEMORY : Episode : {} : memory : {}/{}'.format(i,len(memory),memory.capacity) )
 				i+=1
 				cumul_reward = 0.0
 				last_screen = get_screen_reset(env,preprocess=preprocess)
@@ -759,7 +662,7 @@ class Worker :
 				model_ = model_.cuda()
 			
 
-			accumulateMemory(memory,env,model,preprocess,epsstart=0.5,epsend=0.3,epsdecay=200,k=k,strategy=strategy)
+			self.accumulateMemory(memory,env,model,preprocess,epsstart=0.5,epsend=0.3,epsdecay=200,k=k,strategy=strategy)
 
 			for i in range(num_episodes) :
 				bashlogger.info('Episode : {} : memory : {}/{}'.format(i,len(memory),memory.capacity) )
@@ -772,12 +675,7 @@ class Worker :
 				meanfreq = 0
 				episode_loss_buffer = []
 
-				#periodically save model to model_:
-				_counterT = (_counterT+1)%_updateT
-				if _counterT == 0 :
-					savemodel(model,path+'.save')
-					loadmodel(model_,path+'.save')
-
+				
 				#HER : sample initial goal :
 				if not singlegoal :
 					init_goal = sample_init_goal(memory)
@@ -945,10 +843,8 @@ def main():
 	env = 'Breakout-v0'#gym.make('Breakout-v0')#.unwrapped
 	nbr_actions = 4
 	
-	resize = T.Compose([T.ToPILImage(),
-					#T.Scale(84, interpolation=Image.CUBIC),
-					#T.Scale(50, interpolation=Image.CUBIC),
-					T.Scale(30, interpolation=Image.CUBIC),
+	preprocess = T.Compose([T.ToPILImage(),
+					T.Scale(64, interpolation=Image.CUBIC),
 					T.ToTensor() ] )
 
 	last_sync = 0
@@ -959,6 +855,7 @@ def main():
 	global GAMMA
 	GAMMA = 0.999
 	global MIN_MEMORY
+	TAU=1e-3
 	MIN_MEMORY = 1e3
 	EPS_START = 0.5
 	EPS_END = 0.05
@@ -966,6 +863,7 @@ def main():
 	alphaPER = 0.5
 	global lr
 	lr = 6.25e-1
+	#lr = 1e-3
 	memoryCapacity = 1e5
 	num_worker = 1
 	#HER :
@@ -986,9 +884,9 @@ def main():
 
 
 	#model = DQN(nbr_actions)
-	#model = DQN_HER(nbr_actions)
+	model = DQN_HER(nbr_actions)
 	#model = DuelingDQN(nbr_actions)
-	model = DuelingDQN_HER(nbr_actions)
+	#model = DuelingDQN_HER(nbr_actions)
 	model.share_memory()
 	
 	bashlogger.info('Model : created.')
@@ -1006,7 +904,7 @@ def main():
 
 	workers = []
 	for i in range(num_worker) :
-		worker = Worker(i,model,env,memory,lr=lr,preprocess=resize,path=path,frompath=frompath,num_episodes=numep,epsend=EPS_END,epsstart=EPS_START,epsdecay=EPS_DECAY,k=k,strategy=strategy)
+		worker = Worker(i,model,env,memory,lr=lr,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,epsend=EPS_END,epsstart=EPS_START,epsdecay=EPS_DECAY,TAU=TAU,k=k,strategy=strategy)
 		workers.append(worker)
 		time.sleep(1)
 		worker.start()
