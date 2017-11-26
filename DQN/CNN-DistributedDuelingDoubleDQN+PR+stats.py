@@ -110,6 +110,59 @@ class DQN(nn.Module) :
 		mutex.release()
 
 
+class DuelingDQN(nn.Module) :
+	def __init__(self,nbr_actions=2,actfn= lambda x : F.leaky_relu(x,0.1)) :
+		super(DuelingDQN,self).__init__()
+		
+		self.nbr_actions = nbr_actions
+
+		self.actfn = actfn
+
+		self.conv1 = nn.Conv2d(3,16, kernel_size=5, stride=2)
+		self.bn1 = nn.BatchNorm2d(16)
+		self.conv2 = nn.Conv2d(16,32, kernel_size=5, stride=2)
+		self.bn2 = nn.BatchNorm2d(32)
+		self.conv3 = nn.Conv2d(32,32, kernel_size=5, stride=2)
+		self.bn3 = nn.BatchNorm2d(32)
+		
+		#self.f = nn.Linear(192,128)
+		self.f = nn.Linear(1120,256)
+		
+		self.value = nn.Linear(256,1)
+		self.advantage = nn.Linear(256,self.nbr_actions)
+		
+
+	def forward(self, x) :
+		x = self.actfn( self.bn1(self.conv1(x) ) )
+		x = self.actfn( self.bn2(self.conv2(x) ) )
+		x = self.actfn( self.bn3(self.conv3(x) ) )
+		x = x.view( x.size(0), -1)
+		
+		#print(x.size())
+
+		fx = self.actfn( self.f(x) )
+
+		v = self.value(fx)
+		va = torch.cat( [ v for i in range(self.nbr_actions) ], dim=1)
+		a = self.advantage(fx)
+
+		suma = torch.mean(a,dim=1,keepdim=True)
+		suma = torch.cat( [ suma for i in range(self.nbr_actions) ], dim=1)
+		
+		x = va+a-suma
+		
+			
+		return x
+
+	
+	def lock(self) :
+		global mutex
+		mutex.acquire()
+
+	def unlock(self) :
+		global mutex
+		mutex.release()
+
 
 
 
@@ -241,6 +294,9 @@ class Worker :
 
 		self.optimizer.zero_grad()
 
+		decay_loss = 0.5*sum( [torch.mean(param*param) for param in self.model.parameters()])
+		decay_loss.backward()
+		
 		#update model :
 		for wparam, mparam in zip(self.wmodel.parameters(), self.model.parameters() ) :
 			if mparam.grad :

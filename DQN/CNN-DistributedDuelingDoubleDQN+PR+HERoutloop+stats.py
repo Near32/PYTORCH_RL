@@ -326,6 +326,11 @@ def select_action(model,state,steps_done=[],epsend=0.05,epsstart=0.9,epsdecay=20
 	else :
 		return LongTensor( [[random.randrange(nbr_actions) ] ] )
 
+def exploitation(model,state) :
+	global nbr_actions
+	return model( Variable(state, volatile=True).type(FloatTensor) ).data.max(1)[1].view(1,1)
+
+
 
 def render(frame) :
 	if use_cuda :
@@ -401,12 +406,14 @@ class Worker :
 
 		self.optimizer.zero_grad()
 
-		print('OPTIMIZATION')
+
+		decay_loss = 0.5*sum( [torch.mean(param*param) for param in self.model.parameters()])
+		decay_loss.backward()
 		
 		for wparam, mparam in zip(self.wmodel.parameters(), self.model.parameters() ) :
-			if mparam.grad :
-				mparam.grad.copy_( mparam.grad + wparam.grad )
-
+			if mparam.grad is not None:
+				mparam.grad =  mparam.grad + wparam.grad
+				
 		self.optimizer.step()
 
 		#update wmodel :
@@ -549,7 +556,7 @@ class Worker :
 				showcount = 0 
 
 				for t in count() :
-					model.eval()
+					#model.eval()
 					#HER :
 					stategoal = torch.cat( [state,init_goal], dim=1)
 
@@ -685,7 +692,7 @@ class Worker :
 				showcount = 0
 
 				for t in count() :
-					model.eval()
+					#model.eval()
 					
 					#HER :
 					stategoal = torch.cat( [state,init_goal], dim=1)
@@ -862,8 +869,8 @@ def main():
 	EPS_DECAY = 200
 	alphaPER = 0.5
 	global lr
-	lr = 6.25e-1
-	#lr = 1e-3
+	#lr = 6.25e-1
+	lr = 1e-3
 	memoryCapacity = 1e5
 	num_worker = 1
 	#HER :
@@ -884,9 +891,9 @@ def main():
 
 
 	#model = DQN(nbr_actions)
-	model = DQN_HER(nbr_actions)
+	#model = DQN_HER(nbr_actions)
 	#model = DuelingDQN(nbr_actions)
-	#model = DuelingDQN_HER(nbr_actions)
+	model = DuelingDQN_HER(nbr_actions)
 	model.share_memory()
 	
 	bashlogger.info('Model : created.')
