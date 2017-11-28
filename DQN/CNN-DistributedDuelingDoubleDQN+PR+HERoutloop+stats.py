@@ -916,7 +916,7 @@ def main():
 	bashlogger.info('Memory : ok.')
 
 	evaluation = True
-	training = False
+	training = True
 
 	if training :
 		workers = []
@@ -941,7 +941,7 @@ def main():
 			
 			nbrsteps = 0
 
-			while not (done or (nbrsteps >= MAX_STEPS/5) ) :
+			while not done  :
 				#HER :
 				#stategoal = torch.cat( [state,init_goal], dim=1)
 				stategoal = torch.cat( [state,state], dim=1)
@@ -956,6 +956,7 @@ def main():
 				task.render()
 				
 				if done or (nbrsteps >= MAX_STEPS/5) :
+					done = True
 					task.reset()
 					next_state = torch.zeros(current_screen.size())
 					print('EVALUATION : EPISODE {} : reward = {} // steps = {} // DONE : {}'.format(ep,cumr, nbrsteps,done))

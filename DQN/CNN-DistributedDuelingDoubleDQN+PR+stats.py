@@ -196,13 +196,19 @@ def select_action(model,state,steps_done=[],epsend=0.05,epsstart=0.9,epsdecay=20
 	steps_done[0] +=1
 
 	if sample > eps_threshold :
-		return model( Variable(state, volatile=True).type(FloatTensor) ).data.max(1)[1].view(1,1)
+		output = model( Variable(state, volatile=True).type(FloatTensor) ).data
+		action = output.max(1)[1].view(1,1)
+		qsa = output.max(1)[0].view(1,1)[0,0]
+		return action, qsa
 	else :
-		return LongTensor( [[random.randrange(nbr_actions) ] ] )
+		return LongTensor( [[random.randrange(nbr_actions) ] ] ), 0.0
 
 def exploitation(model,state) :
 	global nbr_actions
-	return model( Variable(state, volatile=True).type(FloatTensor) ).data.max(1)[1].view(1,1)
+	output = model( Variable(state, volatile=True).type(FloatTensor) ).data.max(1)
+	action = output[1].view(1,1)
+	qsa = output[0].view(1,1)[0,0]
+	return action,qsa
 
 	
 def plot_durations() :
@@ -294,14 +300,15 @@ class Worker :
 
 		self.optimizer.zero_grad()
 
+
 		decay_loss = 0.5*sum( [torch.mean(param*param) for param in self.model.parameters()])
 		decay_loss.backward()
 		
-		#update model :
 		for wparam, mparam in zip(self.wmodel.parameters(), self.model.parameters() ) :
-			if mparam.grad :
-				mparam.grad.copy_( mparam.grad + wparam.grad )
-
+			if mparam.grad is not None:
+				if wparam.grad is not None :
+					mparam.grad =  mparam.grad + wparam.grad
+				
 		self.optimizer.step()
 
 		#update wmodel :
@@ -449,12 +456,14 @@ class Worker :
 				episode_buffer = []
 				meanfreq = 0
 				episode_loss_buffer = []
+				episode_qsa_buffer = []
 
 				
 				showcount = 0
 				for t in count() :
 					
-					action = select_action(model,state,steps_done=steps_done,epsend=epsend,epsstart=epsstart,epsdecay=epsdecay)
+					action,qsa = select_action(model,state,steps_done=steps_done,epsend=epsend,epsstart=epsstart,epsdecay=epsdecay)
+					episode_qsa_buffer.append(qsa)
 					last_screen = current_screen
 					current_screen, reward, done, info = get_screen(env,action[0,0],preprocess=preprocess)
 					cumul_reward += reward
@@ -514,8 +523,10 @@ class Worker :
 						episode_reward.append(cumul_reward)
 						meanloss = np.mean(episode_loss_buffer)
 						episode_loss.append(meanloss)
+						meanqsa = np.mean(episode_qsa_buffer)
 
-						log = 'Episode duration : {}'.format(t+1) +'---' +' Reward : {} // Mean Loss : {}'.format(cumul_reward,meanloss) +'---'+' {}Hz'.format(meanfreq)
+
+						log = 'Episode duration : {}'.format(t+1) +'---' +' Reward : {} // Mean Loss : {} // QSA : {}'.format(cumul_reward,meanloss,meanqsa) +'---'+' {}Hz'.format(meanfreq)
 						bashlogger.info(log)
 						if logger is not None :
 							new = {'episodes':[i],'duration':[t+1],'reward':[cumul_reward],'mean frequency':[meanfreq],'loss':[meanloss]}
@@ -573,7 +584,7 @@ def main():
 	
 	numep = 200000
 	global BATCH_SIZE
-	BATCH_SIZE = 32
+	BATCH_SIZE = 16
 	global GAMMA
 	GAMMA = 0.999
 	global MIN_MEMORY
@@ -583,9 +594,9 @@ def main():
 	EPS_DECAY = 200
 	alphaPER = 0.7
 	global lr
-	lr = 1e-3
-	memoryCapacity = 1e5
-	num_worker = 2
+	lr = 1e-4
+	memoryCapacity = 25e3
+	num_worker = 4
 
 	model_path = './'+env+'::CNN+DuelingDoubleDQN+PR-alpha'+str(alphaPER)+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
 	
@@ -643,19 +654,23 @@ def main():
 			nbrsteps = 0
 
 			while not done :
-				
-				action = exploitation(model,state)
+				action, qsa = exploitation(model,state)
 				last_screen = current_screen
 				current_screen, reward, done, info = get_screen(task,action[0,0],preprocess=preprocess)
 				cumr += reward
 
 				task.render()
-				if not done :
-					next_state = current_screen -last_screen
-				else :
+				print('QSA : {}'.format(qsa))
+				
+				if done or (nbrsteps >= MAX_STEPS/5) :
+					done = True
+					task.reset()
 					next_state = torch.zeros(current_screen.size())
-					print('EVALUATION : EPISODE {} : reward = {} // steps = {}'.format(ep,cumr, nbrsteps))
-
+					print('EVALUATION : EPISODE {} : reward = {} // steps = {} // DONE : {}'.format(ep,cumr, nbrsteps,done))
+				else :
+					next_state = current_screen -last_screen
+					#print('step {}/{} : action = {}'.format(nbrsteps,MAX_STEPS, action))
+				
 				state = next_state
 				nbrsteps +=1 
 
