@@ -848,6 +848,10 @@ def main():
 	#env = 'SpaceInvaders-v0'#gym.make('SpaceInvaders-v0')#.unwrapped
 	#nbr_actions = 6
 	env = 'Breakout-v0'#gym.make('Breakout-v0')#.unwrapped
+	task = gym.make(env)
+	task.reset()
+	task.render()
+	#task.close()
 	nbr_actions = 4
 	
 	preprocess = T.Compose([T.ToPILImage(),
@@ -858,7 +862,7 @@ def main():
 	
 	numep = 200000
 	global BATCH_SIZE
-	BATCH_SIZE = 32
+	BATCH_SIZE = 8
 	global GAMMA
 	GAMMA = 0.999
 	global MIN_MEMORY
@@ -870,15 +874,17 @@ def main():
 	alphaPER = 0.5
 	global lr
 	#lr = 6.25e-1
-	lr = 1e-3
+	lr = 1e-4
 	memoryCapacity = 1e5
-	num_worker = 1
+	num_worker = 4
 	#HER :
 	k = 2
 	strategy = 'future'
 
 	model_path = './'+env+'::rescaleCNN+DoubleDQN+PR+HERoutloop-alpha'+str(alphaPER)+'-k'+str(k)+strategy+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
 	
+
+	memoryCapacity = 25e3
 	#mkdir :
 	if not os.path.exists(model_path) :
 		os.mkdir(model_path)
@@ -909,18 +915,63 @@ def main():
 	memory = PrioritizedReplayBuffer(capacity=memoryCapacity,alpha=alphaPER)
 	bashlogger.info('Memory : ok.')
 
-	workers = []
-	for i in range(num_worker) :
-		worker = Worker(i,model,env,memory,lr=lr,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,epsend=EPS_END,epsstart=EPS_START,epsdecay=EPS_DECAY,TAU=TAU,k=k,strategy=strategy)
-		workers.append(worker)
-		time.sleep(1)
-		worker.start()
+	evaluation = True
+	training = False
 
-	for i in range(num_worker) :
-		try :
-			workers[i].join()
-		except Exception as e :
-			bashlogger.info(e)
+	if training :
+		workers = []
+		for i in range(num_worker) :
+			worker = Worker(i,model,env,memory,lr=lr,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,epsend=EPS_END,epsstart=EPS_START,epsdecay=EPS_DECAY,TAU=TAU,k=k,strategy=strategy)
+			workers.append(worker)
+			time.sleep(1)
+			worker.start()
+
+	if evaluation :
+		task = gym.make(env)
+		task.reset()
+		dummyaction = 0
+		task.step(dummyaction)
+		for ep in range(numep) :
+			cumr = 0.0
+			done = False
+			last_screen = get_screen_reset(task,preprocess=preprocess)
+			current_screen, reward, done, info = get_screen(task,dummyaction,preprocess=preprocess)
+			state = current_screen -last_screen
+			init_goal = torch.zeros(current_screen.size())
+			
+			nbrsteps = 0
+
+			while not (done or (nbrsteps >= MAX_STEPS/5) ) :
+				#HER :
+				#stategoal = torch.cat( [state,init_goal], dim=1)
+				stategoal = torch.cat( [state,state], dim=1)
+
+				#action = exploitation(model,state)
+				action = exploitation(model,stategoal)
+				
+				last_screen = current_screen
+				current_screen, reward, done, info = get_screen(task,action[0,0],preprocess=preprocess)
+				cumr += reward
+
+				task.render()
+				
+				if done or (nbrsteps >= MAX_STEPS/5) :
+					task.reset()
+					next_state = torch.zeros(current_screen.size())
+					print('EVALUATION : EPISODE {} : reward = {} // steps = {} // DONE : {}'.format(ep,cumr, nbrsteps,done))
+				else :
+					next_state = current_screen -last_screen
+					#print('step {}/{} : action = {}'.format(nbrsteps,MAX_STEPS, action))
+				
+				state = next_state
+				nbrsteps +=1 
+	
+	if training :
+		for i in range(num_worker) :
+			try :
+				workers[i].join()
+			except Exception as e :
+				bashlogger.info(e)
 
 if __name__ == "__main__":
 	main()
