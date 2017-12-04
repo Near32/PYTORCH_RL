@@ -53,7 +53,7 @@ def main(train=True):
 	'''
 	task = gym.make(env)
 	task.reset()
-	task.render()
+	#task.render()
 	task.close()
 	action_dim = task.action_space.shape[0]
 	input_dim = task.observation_space.shape[0]
@@ -79,7 +79,7 @@ def main(train=True):
 	last_sync = 0
 	
 	numep = 20000
-	BATCH_SIZE = 128
+	BATCH_SIZE = 16
 	GAMMA = 0.99
 	TAU = 1e-3
 	MIN_MEMORY = 3e1
@@ -88,12 +88,12 @@ def main(train=True):
 
 	alphaPER = 0.8
 	
-	lr = 1e-6
-	memoryCapacity = 1e6
+	lr = 1e-3
+	memoryCapacity = 25e3
 	
-	num_worker = 2
+	num_worker = 1
 	renderings = [False]*num_worker
-	renderings[0] = True
+	#renderings[0] = True
 	
 	#Dueling :
 	dueling = False

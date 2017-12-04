@@ -127,7 +127,8 @@ class DQN_HER(nn.Module) :
 		self.conv3 = nn.Conv2d(32,32, kernel_size=5, stride=2)
 		self.bn3 = nn.BatchNorm2d(32)
 		#self.head = nn.Linear(448,self.nbr_actions)
-		self.f = nn.Linear(1120,256)
+		#self.f = nn.Linear(1120,256)
+		self.f = nn.Linear(2240,256)
 		self.head = nn.Linear(256,self.nbr_actions)
 
 	def forward(self, x) :
@@ -135,6 +136,7 @@ class DQN_HER(nn.Module) :
 		x = self.actfn( self.bn2(self.conv2(x) ) )
 		x = self.actfn( self.bn3(self.conv3(x) ) )
 		x = x.view( x.size(0), -1)
+		#print(x.size())
 		fx = self.actfn( self.f( x ) )
 		x = self.head( fx )
 		return x
@@ -253,7 +255,8 @@ class DuelingDQN_HER(nn.Module) :
 		self.bn3 = nn.BatchNorm2d(32)
 		
 		#self.f = nn.Linear(192,128)
-		self.f = nn.Linear(1120,256)
+		#self.f = nn.Linear(1120,256)
+		self.f = nn.Linear(2240,256)
 		
 		self.value = nn.Linear(256,1)
 		self.advantage = nn.Linear(256,self.nbr_actions)
@@ -457,12 +460,15 @@ class Worker :
 			state_batch = Variable( torch.cat( batch.state) , requires_grad=False)
 			action_batch = Variable( torch.cat( batch.action) , requires_grad=False)
 			reward_batch = Variable( torch.cat( batch.reward ), requires_grad=False ).view((-1,1))
-			
+			done_batch = [ 0.0 if batch.done[i] else 1.0 for i in range(len(batch.done)) ]
+			done_batch = Variable( torch.FloatTensor(done_batch), requires_grad=False ).view((-1,1))
+
 			if use_cuda :
 				next_state_batch = next_state_batch.cuda()
 				state_batch = state_batch.cuda()
 				action_batch = action_batch.cuda()
 				reward_batch = reward_batch.cuda()
+				done_batch = done_batch.cuda()
 
 			state_action_values = model(state_batch)
 			#state_action_values_g = state_action_values.gather(1,action_batch)
@@ -489,7 +495,7 @@ class Worker :
 			reward_batch = torch.cat( [reward_batch for i in range(nbr_actions)], dim=1)
 			# Compute the expected Q values
 			gamma_next = (next_state_values__argmax_a * GAMMA).type(FloatTensor)
-			expected_state_action_values = gamma_next + reward_batch
+			expected_state_action_values = done_batch*gamma_next + reward_batch
 
 			# Compute Huber loss
 			#loss = F.smooth_l1_loss(state_action_values_g, expected_state_action_values)
@@ -850,19 +856,19 @@ def main():
 	env = 'Breakout-v0'#gym.make('Breakout-v0')#.unwrapped
 	task = gym.make(env)
 	task.reset()
-	task.render()
+	#task.render()
 	#task.close()
 	nbr_actions = 4
 	
 	preprocess = T.Compose([T.ToPILImage(),
-					T.Scale(64, interpolation=Image.CUBIC),
+					T.Scale(81, interpolation=Image.CUBIC),
 					T.ToTensor() ] )
 
 	last_sync = 0
 	
 	numep = 200000
 	global BATCH_SIZE
-	BATCH_SIZE = 8
+	BATCH_SIZE = 16
 	global GAMMA
 	GAMMA = 0.999
 	global MIN_MEMORY
@@ -874,9 +880,9 @@ def main():
 	alphaPER = 0.5
 	global lr
 	#lr = 6.25e-1
-	lr = 1e-4
+	lr = 1e-3
 	memoryCapacity = 1e5
-	num_worker = 4
+	num_worker = 1
 	#HER :
 	k = 2
 	strategy = 'future'
@@ -915,7 +921,7 @@ def main():
 	memory = PrioritizedReplayBuffer(capacity=memoryCapacity,alpha=alphaPER)
 	bashlogger.info('Memory : ok.')
 
-	evaluation = True
+	evaluation = False
 	training = True
 
 	if training :
@@ -953,7 +959,7 @@ def main():
 				current_screen, reward, done, info = get_screen(task,action[0,0],preprocess=preprocess)
 				cumr += reward
 
-				task.render()
+				#task.render()
 				
 				if done or (nbrsteps >= MAX_STEPS/5) :
 					done = True

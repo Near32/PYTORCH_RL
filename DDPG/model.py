@@ -858,6 +858,7 @@ class Model2Distributed :
 				action_batch = Variable( torch.cat( batch.action) )#, requires_grad=False)
 				reward_batch = Variable( torch.cat( batch.reward ) )#, requires_grad=False ).view((-1))
 				terminal_batch = Variable( torch.cat( batch.done ) )
+				
 				'''
 				next_state_batch = Variable(torch.cat( batch.next_state) )
 				state_batch = Variable( torch.cat( batch.state) )

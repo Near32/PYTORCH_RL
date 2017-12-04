@@ -127,15 +127,15 @@ class DuelingDQN(nn.Module) :
 			self.conv3 = nn.Conv2d(32,32, kernel_size=5, stride=2)
 			self.bn3 = nn.BatchNorm2d(32)
 			#self.f = nn.Linear(192,128)
-			self.f = nn.Linear(1120,256)
+			self.f = nn.Linear(1120,32)
 		
 		else :
-			self.f1 = nn.Linear(self.useCNN['dim'], 512)	
-			self.f2 = nn.Linear(512, 512)
-			self.f = nn.Linear(512,256)	
+			self.f1 = nn.Linear(self.useCNN['dim'], 32)	
+			self.f2 = nn.Linear(32, 32)
+			self.f = nn.Linear(32,32)	
 			
-		self.value = nn.Linear(256,1)
-		self.advantage = nn.Linear(256,self.nbr_actions)
+		self.value = nn.Linear(32,1)
+		self.advantage = nn.Linear(32,self.nbr_actions)
 		
 
 	def forward(self, x) :
@@ -257,7 +257,7 @@ def render(frame) :
 
 
 class Worker :
-	def __init__(self,index,model,env,memory,lr=1e-2,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,epsend=0.05,epsstart=0.9,epsdecay=10,TAU=1e-3) :
+	def __init__(self,index,model,env,memory,lr=1e-3,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,epsend=0.05,epsstart=0.9,epsdecay=10,TAU=1e-3) :
 		self.index = index
 		self.model = model
 
@@ -365,12 +365,15 @@ class Worker :
 			state_batch = Variable( torch.cat( batch.state) , requires_grad=False)
 			action_batch = Variable( torch.cat( batch.action) , requires_grad=False)
 			reward_batch = Variable( torch.cat( batch.reward ), requires_grad=False ).view((-1,1))
+			done_batch = [ 0.0 if batch.done[i] else 1.0 for i in range(len(batch.done)) ]
+			done_batch = Variable( torch.FloatTensor(done_batch), requires_grad=False ).view((-1,1))
 			
 			if use_cuda :
 				next_state_batch = next_state_batch.cuda()
 				state_batch = state_batch.cuda()
 				action_batch = action_batch.cuda()
 				reward_batch = reward_batch.cuda()
+				done_batch = done_batch.cuda()
 
 			state_action_values = model(state_batch)
 			state_action_values_g = state_action_values.gather(1,action_batch)
@@ -381,8 +384,8 @@ class Worker :
 			############################
 			# Compute the expected Q values
 			gamma_next = (next_state_values * GAMMA).type(FloatTensor)
-			expected_state_action_values = gamma_next + reward_batch
-			
+			expected_state_action_values = done_batch*gamma_next + reward_batch
+
 			# Compute Huber loss
 			#loss = F.smooth_l1_loss(state_action_values_g, expected_state_action_values)
 			diff = state_action_values_g - expected_state_action_values
@@ -573,7 +576,8 @@ def main():
 	#useCNN = {'use':True,'dim':3}
 
 	#env = 'Acrobot-v1'
-	env = 'CartPole-v1'
+	#env = 'CartPole-v1'
+	env = 'MountainCar-v0'
 	task = gym.make(env)
 	nbr_actions = task.action_space.n
 	useCNN = {'use':False,'dim':task.observation_space.shape[0]}
@@ -594,15 +598,16 @@ def main():
 	
 	numep = 200000
 	global BATCH_SIZE
-	BATCH_SIZE = 16
+	BATCH_SIZE = 32
 	global GAMMA
-	GAMMA = 0.999
+	GAMMA = 0.95
+	TAU = 1e-3
 	global MIN_MEMORY
 	MIN_MEMORY = 1e3
 	EPS_START = 0.9
-	EPS_END = 0.03
-	EPS_DECAY = 100000
-	alphaPER = 0.7
+	EPS_END = 0.3
+	EPS_DECAY = 10000
+	alphaPER = 0.5
 	global lr
 	lr = 1e-3
 	memoryCapacity = 25e3
@@ -644,7 +649,7 @@ def main():
 	if training :
 		workers = []
 		for i in range(num_worker) :
-			worker = Worker(i,model,env,memory,lr=lr,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,epsend=EPS_END,epsstart=EPS_START,epsdecay=EPS_DECAY)
+			worker = Worker(i,model,env,memory,lr=lr,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,epsend=EPS_END,epsstart=EPS_START,epsdecay=EPS_DECAY,TAU=TAU)
 			workers.append(worker)
 			time.sleep(1)
 			worker.start()
