@@ -111,34 +111,44 @@ class DQN(nn.Module) :
 
 
 class DuelingDQN(nn.Module) :
-	def __init__(self,nbr_actions=2,actfn= lambda x : F.leaky_relu(x,0.1)) :
+	def __init__(self,nbr_actions=2,actfn= lambda x : F.leaky_relu(x,0.1), useCNN={'use':True,'dim':3} ) :
 		super(DuelingDQN,self).__init__()
 		
 		self.nbr_actions = nbr_actions
 
 		self.actfn = actfn
+		self.useCNN = useCNN
 
-		self.conv1 = nn.Conv2d(3,16, kernel_size=5, stride=2)
-		self.bn1 = nn.BatchNorm2d(16)
-		self.conv2 = nn.Conv2d(16,32, kernel_size=5, stride=2)
-		self.bn2 = nn.BatchNorm2d(32)
-		self.conv3 = nn.Conv2d(32,32, kernel_size=5, stride=2)
-		self.bn3 = nn.BatchNorm2d(32)
+		if self.useCNN['use'] :
+			self.conv1 = nn.Conv2d(3,16, kernel_size=5, stride=2)
+			self.bn1 = nn.BatchNorm2d(16)
+			self.conv2 = nn.Conv2d(16,32, kernel_size=5, stride=2)
+			self.bn2 = nn.BatchNorm2d(32)
+			self.conv3 = nn.Conv2d(32,32, kernel_size=5, stride=2)
+			self.bn3 = nn.BatchNorm2d(32)
+			#self.f = nn.Linear(192,128)
+			self.f = nn.Linear(1120,256)
 		
-		#self.f = nn.Linear(192,128)
-		self.f = nn.Linear(1120,256)
-		
+		else :
+			self.f1 = nn.Linear(self.useCNN['dim'], 512)	
+			self.f2 = nn.Linear(512, 512)
+			self.f = nn.Linear(512,256)	
+			
 		self.value = nn.Linear(256,1)
 		self.advantage = nn.Linear(256,self.nbr_actions)
 		
 
 	def forward(self, x) :
-		x = self.actfn( self.bn1(self.conv1(x) ) )
-		x = self.actfn( self.bn2(self.conv2(x) ) )
-		x = self.actfn( self.bn3(self.conv3(x) ) )
-		x = x.view( x.size(0), -1)
+		if self.useCNN['use'] :
+			x = self.actfn( self.bn1(self.conv1(x) ) )
+			x = self.actfn( self.bn2(self.conv2(x) ) )
+			x = self.actfn( self.bn3(self.conv3(x) ) )
+			x = x.view( x.size(0), -1)
 		
-		#print(x.size())
+			#print(x.size())
+		else :
+			x = self.actfn( self.f1(x) )
+			x = self.actfn( self.f2(x) )
 
 		fx = self.actfn( self.f(x) )
 
@@ -168,20 +178,22 @@ class DuelingDQN(nn.Module) :
 
 def get_screen(task,action,preprocess) :
 	screen, reward, done, info = task.step(action)
-	screen = screen.transpose( (2,0,1) )
-	screen = np.ascontiguousarray( screen, dtype=np.float32) / 255.0
+	#screen = screen.transpose( (2,0,1) )
+	#screen = np.ascontiguousarray( screen, dtype=np.float32) / 255.0
+	screen = np.ascontiguousarray( screen, dtype=np.float32)
 	screen = torch.from_numpy(screen)
-	screen = preprocess(screen)
+	#screen = preprocess(screen)
 	screen = screen.unsqueeze(0)
 	#screen = screen.type(Tensor)
 	return screen, reward, done, info
 
 def get_screen_reset(task,preprocess) :
 	screen = task.reset()
-	screen = screen.transpose( (2,0,1) )
-	screen = np.ascontiguousarray( screen, dtype=np.float32) / 255.0
+	#screen = screen.transpose( (2,0,1) )
+	#screen = np.ascontiguousarray( screen, dtype=np.float32) / 255.0
+	screen = np.ascontiguousarray( screen, dtype=np.float32)
 	screen = torch.from_numpy(screen)
-	screen = preprocess(screen)
+	#screen = preprocess(screen)
 	screen = screen.unsqueeze(0)
 	return screen
 
@@ -195,6 +207,7 @@ def select_action(model,state,steps_done=[],epsend=0.05,epsstart=0.9,epsdecay=20
 	eps_threshold = epsend + (epsstart-epsend) * math.exp(-1.0 * steps_done[0] / epsdecay )
 	steps_done[0] +=1
 
+	#print('SAMPLE : {} // EPS THRESH : {}'.format(sample, eps_threshold) )
 	if sample > eps_threshold :
 		output = model( Variable(state, volatile=True).type(FloatTensor) ).data
 		action = output.max(1)[1].view(1,1)
@@ -244,7 +257,7 @@ def render(frame) :
 
 
 class Worker :
-	def __init__(self,index,model,env,memory,lr=1e-2,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,epsend=0.05,epsstart=0.9,epsdecay=200,TAU=1e-3) :
+	def __init__(self,index,model,env,memory,lr=1e-2,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,epsend=0.05,epsstart=0.9,epsdecay=10,TAU=1e-3) :
 		self.index = index
 		self.model = model
 
@@ -360,35 +373,21 @@ class Worker :
 				reward_batch = reward_batch.cuda()
 
 			state_action_values = model(state_batch)
-			#state_action_values_g = state_action_values.gather(1,action_batch)
-			
-			#next_state_values = model(non_final_next_states)
-			next_state_values = model(next_state_batch)
-			data  = next_state_values.max(1)
-			argmax_a_next_state_values = data[1]
-			max_a_next_state_values = data[0]
-			
-			#TODO : find the correct way to index :
-			#next_state_values__argmax_a = model_(next_state_batch)[:,argmax_a_next_state_values]
-			#next_state_values__argmax_a = model_(next_state_batch)[:,argmax_a_next_state_values.cpu().data]
-			next_state_values_ = Variable( model_(next_state_batch).cpu().data )
-			## we do not want the framework to propagate any gradients through our model. It is a fixed model.
-			## also it induice a huge memory issue...
+			state_action_values_g = state_action_values.gather(1,action_batch)
 
-			np_argmax = list(argmax_a_next_state_values.cpu().data.view((-1)))
-			snext_state_values_ = torch.cat( [ next_state_values_[i,argmax] for i,argmax in enumerate(np_argmax) ] ).view((-1,1))
-
-			next_state_values__argmax_a = torch.cat( [ snext_state_values_ for i in range(nbr_actions) ], dim=1)
-			
-			
-			reward_batch = torch.cat( [reward_batch for i in range(nbr_actions)], dim=1)
+			############################
+			next_state_values = model_(next_state_batch)
+			next_state_values = Variable(next_state_values.cpu().data.max(1)[0]).view((-1,1))
+			############################
 			# Compute the expected Q values
-			gamma_next = (next_state_values__argmax_a * GAMMA).type(FloatTensor)
+			gamma_next = (next_state_values * GAMMA).type(FloatTensor)
 			expected_state_action_values = gamma_next + reward_batch
-
+			
 			# Compute Huber loss
 			#loss = F.smooth_l1_loss(state_action_values_g, expected_state_action_values)
-			loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)
+			diff = state_action_values_g - expected_state_action_values
+			loss = torch.mean( diff*diff)
+			#loss = nn.MSELoss(state_action_values_g, expected_state_action_values)
 			
 			# Optimize the model
 			#optimizer.zero_grad()
@@ -425,7 +424,7 @@ class Worker :
 		return loss_np
 
 
-	def train(self,model,env,memory,optimizer,logger=None,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,epsend=0.05,epsstart=0.9,epsdecay=200): 
+	def train(self,model,env,memory,optimizer,logger=None,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,epsend=0.05,epsstart=0.9,epsdecay=10): 
 		try :
 			episode_durations = []
 			episode_reward = []
@@ -569,15 +568,26 @@ def main():
 	global nbr_actions
 	#env = 'SpaceInvaders-v0'#gym.make('SpaceInvaders-v0')#.unwrapped
 	#nbr_actions = 6
-	env = 'Breakout-v0'#gym.make('Breakout-v0')#.unwrapped
+	#env = 'Breakout-v0'#gym.make('Breakout-v0')#.unwrapped
+	#nbr_actions = 4
+	#useCNN = {'use':True,'dim':3}
+
+	#env = 'Acrobot-v1'
+	env = 'CartPole-v1'
 	task = gym.make(env)
+	nbr_actions = task.action_space.n
+	useCNN = {'use':False,'dim':task.observation_space.shape[0]}
+
 	task.reset()
-	task.render()
+	#task.render()
 	task.close()
-	nbr_actions = 4
 	
-	preprocess = T.Compose([T.ToPILImage(),
+	if useCNN['use']:
+		preprocess = T.Compose([T.ToPILImage(),
 					T.Scale(64, interpolation=Image.CUBIC),
+					T.ToTensor() ] )
+	else :
+		preprocess = T.Compose([
 					T.ToTensor() ] )
 
 	last_sync = 0
@@ -589,14 +599,14 @@ def main():
 	GAMMA = 0.999
 	global MIN_MEMORY
 	MIN_MEMORY = 1e3
-	EPS_START = 0.5
-	EPS_END = 0.1
-	EPS_DECAY = 200
+	EPS_START = 0.9
+	EPS_END = 0.03
+	EPS_DECAY = 100000
 	alphaPER = 0.7
 	global lr
-	lr = 1e-4
+	lr = 1e-3
 	memoryCapacity = 25e3
-	num_worker = 4
+	num_worker = 1
 
 	model_path = './'+env+'::CNN+DuelingDoubleDQN+PR-alpha'+str(alphaPER)+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
 	
@@ -612,7 +622,7 @@ def main():
 
 
 	#model = DQN(nbr_actions)
-	model = DuelingDQN(nbr_actions)
+	model = DuelingDQN(nbr_actions,useCNN=useCNN)
 	model.share_memory()
 	bashlogger.info('Model : created.')
 	if frompath is not None :
@@ -661,7 +671,7 @@ def main():
 
 				task.render()
 				print('QSA : {}'.format(qsa))
-				
+
 				if done or (nbrsteps >= MAX_STEPS/5) :
 					done = True
 					task.reset()
