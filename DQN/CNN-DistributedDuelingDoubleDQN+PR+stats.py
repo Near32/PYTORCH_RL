@@ -130,12 +130,12 @@ class DuelingDQN(nn.Module) :
 			self.f = nn.Linear(1120,32)
 		
 		else :
-			self.f1 = nn.Linear(self.useCNN['dim'], 32)	
-			self.f2 = nn.Linear(32, 32)
-			self.f = nn.Linear(32,32)	
+			self.f1 = nn.Linear(self.useCNN['dim'], 1024)	
+			self.f2 = nn.Linear(1024, 256)
+			self.f = nn.Linear(256,64)	
 			
-		self.value = nn.Linear(32,1)
-		self.advantage = nn.Linear(32,self.nbr_actions)
+		self.value = nn.Linear(64,1)
+		self.advantage = nn.Linear(64,self.nbr_actions)
 		
 
 	def forward(self, x) :
@@ -576,8 +576,8 @@ def main():
 	#useCNN = {'use':True,'dim':3}
 
 	#env = 'Acrobot-v1'
-	#env = 'CartPole-v1'
-	env = 'MountainCar-v0'
+	env = 'CartPole-v1'
+	#env = 'MountainCar-v0'
 	task = gym.make(env)
 	nbr_actions = task.action_space.n
 	useCNN = {'use':False,'dim':task.observation_space.shape[0]}
@@ -598,9 +598,9 @@ def main():
 	
 	numep = 200000
 	global BATCH_SIZE
-	BATCH_SIZE = 32
+	BATCH_SIZE = 128
 	global GAMMA
-	GAMMA = 0.95
+	GAMMA = 0.999
 	TAU = 1e-3
 	global MIN_MEMORY
 	MIN_MEMORY = 1e3
@@ -611,7 +611,7 @@ def main():
 	global lr
 	lr = 1e-3
 	memoryCapacity = 25e3
-	num_worker = 1
+	num_worker = 8
 
 	model_path = './'+env+'::CNN+DuelingDoubleDQN+PR-alpha'+str(alphaPER)+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
 	
