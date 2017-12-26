@@ -32,6 +32,9 @@ class PrioritizedReplayBuffer :
 		self.tree = np.zeros(2*self.capacity-1)
 		self.data = np.zeros(self.capacity,dtype=object)
 	
+	def reset(self) :
+		self.__init__(capacity=self.capacity,alpha=self.alpha)
+
 	def add(self, exp, priority) :
 		idx = self.counter + self.capacity -1
 		
@@ -111,6 +114,9 @@ class ReplayMemory(object) :
 		self.memory = []
 		self.position = 0
 
+	def reset(self) :
+		self.__init__(capacity=self.capacity)
+	
 	def add(self, exp) :
 		if len(self.memory) < self.capacity :
 			self.memory.append(None)
