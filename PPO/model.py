@@ -778,7 +778,7 @@ class Model2Distributed :
 	
 	def generate_optimizers(self) :
 		optimizer_actor = optim.Adam(self.actor.parameters(), self.lr*1e0)
-		optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e0)
+		optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e2)
 
 		return {'critic':optimizer_critic,'actor':optimizer_actor}
 
@@ -793,7 +793,7 @@ class Model2Distributed :
 		action = self.actor( state).detach()
 		#action = self.target_actor( state).detach()
 		
-		if exploitation :
+		if self.algo == 'ppo' or exploitation :
 			return action.cpu().data.numpy()
 		else :
 			# exploration :
@@ -823,150 +823,170 @@ class Model2Distributed :
 		'''
 
 		if self.algo == 'ppo' :
-			self.batch_size = len(self.memory)
-
-			try :
-				if len(self.memory) < self.MIN_MEMORY :
-					return
-				
-				#Create Batch 
-				self.mutex.acquire()
-				
-				if isinstance(self.memory, PrioritizedReplayBuffer) :
-					#with PR :
-					prioritysum = self.memory.total()
-					randexp = np.random.random(size=self.batch_size)*prioritysum
-					batch = list()
-					for i in range(self.batch_size):
-						try :
-							el = self.memory.get(randexp[i])
-							batch.append(el)
-						except TypeError as e :
-							continue
-							#print('REPLAY BUFFER EXCEPTION...')
-				else :
-					#with random RB :
-					batch = self.memory.sample(self.batch_size)
-
-				self.mutex.release()
-
-				if len(batch) == 0 :
-					return
-
-				# Create Batch with replayMemory :
-				batch = TransitionPR( *zip(*batch) )
-				next_state_batch = Variable(torch.cat( batch.next_state))#, requires_grad=False)
-				state_batch = Variable( torch.cat( batch.state) )#, requires_grad=False)
-				action_batch = Variable( torch.cat( batch.action) )#, requires_grad=False)
-				reward_batch = Variable( torch.cat( batch.reward ) )#, requires_grad=False ).view((-1))
-				
-				if self.use_cuda :
-					next_state_batch = next_state_batch.cuda()
-					state_batch = state_batch.cuda()
-					action_batch = action_batch.cuda()
-					reward_batch = reward_batch.cuda()
-
-				
-				# Critic :
-				# sample action from next_state, without gradient repercusion :
-				next_taction = self.target_actor(next_state_batch).detach()
-				# evaluate the next state action over the target, without repercusion (faster...) :
-				next_tqsa = torch.squeeze( self.target_critic( next_state_batch, next_taction).detach() ).view((-1))
-				# Supervise loss :
-				## y_true :
-				y_true = reward_batch + self.gamma*next_tqsa 
-				## y_pred :
-				y_pred = torch.squeeze( self.critic(state_batch,action_batch) )
-				## loss :
-				critic_loss = F.smooth_l1_loss(y_pred,y_true)
-				#criterion = nn.MSELoss()
-				#critic_loss = criterion(y_pred,y_true)
-				#before optimization :
-				self.critic.zero_grad()
-				self.actor.zero_grad()
-				optimizer_critic.zero_grad()
-				optimizer_actor.zero_grad()
-				critic_loss.backward()
-				#clamping :
-				#torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
-				optimizer_critic.step()
-				
-				
-				###################################
-				
-				# Actor :
-				#transfer current actor's weights to previous actor :
-				hard_update(self.previous_actor, self.actor)
-				
-				#predict action with old weights :
-				pred_old_action = self.previous_actor(state_batch)
-				pred_old_dist = self.previous_actor.dist
-				pred_old_log_prob_batch = pred_old_dist.log_prob(action_batch)
-				#predict action with current weights :
-				pred_action = self.actor(state_batch) 
-				pred_dist = self.actor.dist
-				pred_log_prob_batch = pred_dist.log_prob(action_batch)
-				
-				#helper vars :
-				clipped_m = (1.0-self.epsilon)#*torch.ones(ratio.size())
-				clipped_p = (1.0+self.epsilon)#*torch.ones(ratio.size())
-				
-				#compute advantage :
-				advantages = self.critic( state_batch, action_batch)
-				# center and reduice advantage :
-				advantages = ( advantages-advantages.mean() ) / ( 2*advantages.std() )
-				
-				#compute ratios :
-				ratio = torch.exp(pred_log_prob_batch - pred_old_log_prob_batch)
-				clipped_ratio = ratio.clamp(clipped_m,clipped_p)
-				surr = ratio * advantages
-				clipped_surr = clipped_ratio * advantages
-				actor_loss = -torch.min(surr,clipped_surr).mean()
-				
-				#before optimization :
-				self.actor.zero_grad()
-				optimizer_actor.zero_grad()
-				actor_loss.backward()
-				
-				#clamping :
-				#clampactor = 5e1#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
-				#torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
-				
-				#update of the weights :
-				optimizer_actor.step()
-				
-				###################################
-
-				
-				'''
-				critic_grad = 0.0
-				for p in self.critic.parameters() :
-					critic_grad += np.mean(p.grad.cpu().data.numpy())
-				print( 'Mean Critic Grad : {}'.format(critic_grad) )
-				'''
-				
-				actor_grad = 0.0
-				for p in self.actor.parameters() :
-					actor_grad += np.max( np.abs(p.grad.cpu().data.numpy() ) )
-				#print( 'Mean Actor Grad : {}'.format(actor_grad) )
-				
-
-				#UPDATE THE PR :
-				self.memory.reset()
-
-			except Exception as e :
-				bashlogger.debug('error : {}',format(e) )
-				raise e
-
-			# soft update :
-			soft_update(self.target_critic, self.critic, self.tau)
-			soft_update(self.target_actor, self.actor, self.tau)
-
+			if len(self.memory) < self.MIN_MEMORY :
+						return
 			
-			closs = critic_loss.cpu()
-			aloss = actor_loss.cpu()
-			
-			return closs.data.numpy(), aloss.data.numpy(), actor_grad
+			rollout_size = len(self.memory)
+			iterations = int(rollout_size/self.batch_size)
+
+			acc_closs = 0.0
+			acc_aloss = 0.0
+			acc_actor_grad = 0.0
+
+			for i in range(iterations) :					
+				try :					
+					#Create Batch 
+					self.mutex.acquire()
+					
+					if isinstance(self.memory, PrioritizedReplayBuffer) :
+						#with PR :
+						prioritysum = self.memory.total()
+						randexp = np.random.random(size=self.batch_size)*prioritysum
+						batch = list()
+						for j in range(self.batch_size):
+							try :
+								el = self.memory.get(randexp[j])
+								batch.append(el)
+							except TypeError as e :
+								continue
+								#print('REPLAY BUFFER EXCEPTION...')
+					else :
+						#with random RB :
+						batch = self.memory.sample(self.batch_size)
+
+					self.mutex.release()
+
+					if len(batch) == 0 :
+						continue
+
+					# Create Batch with replayMemory :
+					batch = TransitionPR( *zip(*batch) )
+					next_state_batch = Variable(torch.cat( batch.next_state))#, requires_grad=False)
+					state_batch = Variable( torch.cat( batch.state) )#, requires_grad=False)
+					action_batch = Variable( torch.cat( batch.action) )#, requires_grad=False)
+					reward_batch = Variable( torch.cat( batch.reward ) )#, requires_grad=False ).view((-1))
+					
+					if self.use_cuda :
+						next_state_batch = next_state_batch.cuda()
+						state_batch = state_batch.cuda()
+						action_batch = action_batch.cuda()
+						reward_batch = reward_batch.cuda()
+
+					
+					# Critic :
+					# sample action from next_state, without gradient repercusion :
+					#next_taction = self.target_actor(next_state_batch).detach()
+					# evaluate the next state action over the target, without repercusion (faster...) :
+					#next_tqsa = torch.squeeze( self.target_critic( next_state_batch, next_taction).detach() ).view((-1))
+					
+					# Supervise loss :
+					## y_true :
+					#y_true = reward_batch + self.gamma*next_tqsa 
+					y_true = reward_batch
+					## y_pred :
+					y_pred = torch.squeeze( self.critic(state_batch,action_batch) )
+					## loss :
+					#critic_loss = F.smooth_l1_loss(y_pred,y_true)
+					criterion = nn.MSELoss()
+					critic_loss = criterion(y_pred,y_true)
+					#before optimization :
+					#self.critic.zero_grad()
+					#self.actor.zero_grad()
+					optimizer_critic.zero_grad()
+					#optimizer_actor.zero_grad()
+					critic_loss.backward()
+					#clamping :
+					#torch.nn.utils.clip_grad_norm(self.critic.parameters(),50)				
+					optimizer_critic.step()
+					
+					
+					###################################
+					
+					# Actor :
+					#transfer current actor's weights to previous actor :
+					hard_update(self.previous_actor, self.actor)
+					
+					#predict action with old weights :
+					pred_old_action = self.previous_actor(state_batch)
+					pred_old_dist = self.previous_actor.dist
+					pred_old_log_prob_batch = pred_old_dist.log_prob(action_batch)
+					#predict action with current weights :
+					pred_action = self.actor(state_batch) 
+					pred_dist = self.actor.dist
+					pred_log_prob_batch = pred_dist.log_prob(action_batch)
+					
+					#helper vars :
+					clipped_m = (1.0-self.epsilon)#*torch.ones(ratio.size())
+					clipped_p = (1.0+self.epsilon)#*torch.ones(ratio.size())
+					
+					#compute advantage :
+					qsa = self.critic( state_batch, action_batch)
+					v = self.critic.Vvalue
+					v = v.view((-1))
+					advantages = reward_batch-v
+					# center and reduice advantage :
+					advantages = ( advantages-advantages.mean() ) / ( advantages.std() + 1e-10)
+					advantages = advantages.view((-1,1) )
+					advantages = Variable( advantages.data )
+					
+					#compute ratios :
+					ratio = torch.exp(pred_log_prob_batch - Variable( pred_old_log_prob_batch.data) )
+					clipped_ratio = ratio.clamp(clipped_m,clipped_p)
+					surr = ratio * advantages
+					clipped_surr = clipped_ratio * advantages
+					actor_loss = -torch.min(surr,clipped_surr).mean()
+					
+					#before optimization :
+					#self.actor.zero_grad()
+					optimizer_actor.zero_grad()
+					actor_loss.backward()
+					
+					#clamping :
+					#clampactor = 5e1#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
+					#torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
+					
+					#update of the weights :
+					optimizer_actor.step()
+					
+					###################################
+
+					
+					'''
+					critic_grad = 0.0
+					for p in self.critic.parameters() :
+						critic_grad += np.mean(p.grad.cpu().data.numpy())
+					print( 'Mean Critic Grad : {}'.format(critic_grad) )
+					'''
+					
+					actor_grad = 0.0
+					for p in self.actor.parameters() :
+						actor_grad += np.max( np.abs(p.grad.cpu().data.numpy() ) )
+					#print( 'Mean Actor Grad : {}'.format(actor_grad) )
+					
+				except Exception as e :
+					bashlogger.debug('error : {}',format(e) )
+					raise e
+
+				# soft update :
+				soft_update(self.target_critic, self.critic, self.tau)
+				#soft_update(self.target_actor, self.actor, self.tau)
+				# hard update :
+				#hard_update(self.target_critic, self.critic)
+				hard_update(self.target_actor, self.actor)
+
+
+				
+				closs = critic_loss.cpu()
+				aloss = actor_loss.cpu()
+				
+				acc_closs += closs
+				acc_aloss += aloss
+				acc_actor_grad += actor_grad
+
+			#UPDATE THE PR :
+			self.memory.reset()
+
+			return acc_closs.data.numpy(), acc_aloss.data.numpy(), acc_actor_grad
 
 		else :
 			raise NotImplemented
@@ -1000,3 +1020,275 @@ class Model2Distributed :
 		hard_update(self.target_actor, self.actor)
 		self.critic.load_state_dict( torch.load(path+'.critic') )
 		hard_update(self.target_critic, self.critic)
+
+
+
+class ActorCriticModel2Distributed :
+	def __init__(self, actor_critic, memory, algo='ddpg',GAMMA=GAMMA,LR=LR,TAU=TAU,use_cuda=USE_CUDA,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=1e3 ) :
+		self.actor_critic = actor_critic
+		self.target_actor_critic = copy.deepcopy(actor_critic)
+		
+		self.use_cuda = use_cuda
+		if self.use_cuda :
+			self.actor_critic = self.actor_critic.cuda()
+			self.target_actor_critic = self.target_actor_critic.cuda()
+			
+
+		self.memory = memory
+
+		self.gamma = GAMMA
+		self.lr = LR
+		self.tau = TAU
+		self.batch_size = BATCH_SIZE
+		self.MIN_MEMORY = MIN_MEMORY
+
+		self.mutex = Lock()
+		
+		self.noise = OrnsteinUhlenbeckNoise(self.actor_critic.action_dim)
+
+		hard_update(self.target_actor_critic, self.actor_critic)
+		
+		self.algo = algo
+		if self.algo == 'ppo' :
+			self.previous_actor_critic = copy.deepcopy(self.actor_critic)
+			self.epsilon = 0.2
+			if self.use_cuda :
+				self.previous_actor_critic = self.previous_actor_critic.cuda()
+
+	
+	def generate_optimizers(self) :
+		optimizer = optim.Adam(self.actor_critic.parameters(), self.lr*1e0)
+		
+		return {'critic':optimizer,'actor':optimizer}
+
+
+	def act(self, x,exploitation=True) :
+		self.actor_critic.eval()
+		
+		#state = Variable( torch.from_numpy(x), volatile=True )
+		state = Variable( x, volatile=True )
+		if self.use_cuda :
+			state = state.cuda()
+		action = self.actor_critic.act( state).detach()
+		#action = self.target_actor( state).detach()
+		
+		if self.algo == 'ppo' or exploitation :
+			return action.cpu().data.numpy()
+		else :
+			# exploration :
+			new_action = action.cpu().data.numpy() + self.noise.sample()*self.actor.action_scaler
+			return new_action
+
+	def evaluate(self, x, a) :
+		self.actor_critic.eval()
+		
+		state = Variable( x, volatile=True )
+		action = Variable( a, volatile=True )
+		if self.use_cuda :
+			state = state.cuda()
+			action = action.cuda()
+
+		qsa = self.actor_critic.evaluate( state, action).detach()
+		#qsa = self.target_critic( state, action).detach()
+		
+		return qsa.cpu().data.numpy()
+
+	def evaluateV(self, x) :
+		self.actor_critic.eval()
+		
+		state = Variable( x, volatile=True )
+		action = Variable( a, volatile=True )
+		if self.use_cuda :
+			state = state.cuda()
+			action = action.cuda()
+
+		V = self.actor_critic.evaluateV( state).detach()
+		#qsa = self.target_critic( state, action).detach()
+		
+		return V.cpu().data.numpy()
+
+	def optimize(self,optimizer_critic,optimizer_actor) :
+		self.target_actor_critic.eval()
+		self.actor_critic.train()
+		
+		optimizer = optimizer_actor
+
+		if self.algo == 'ppo' :
+			if len(self.memory) < self.MIN_MEMORY :
+						return
+			
+			rollout_size = len(self.memory)
+			iterations = int(rollout_size/self.batch_size)
+
+			acc_closs = 0.0
+			acc_aloss = 0.0
+			acc_actor_grad = 0.0
+
+			for i in range(iterations) :					
+				try :					
+					#Create Batch 
+					self.mutex.acquire()
+					
+					if isinstance(self.memory, PrioritizedReplayBuffer) :
+						#with PR :
+						prioritysum = self.memory.total()
+						randexp = np.random.random(size=self.batch_size)*prioritysum
+						batch = list()
+						for j in range(self.batch_size):
+							try :
+								el = self.memory.get(randexp[j])
+								batch.append(el)
+							except TypeError as e :
+								continue
+								#print('REPLAY BUFFER EXCEPTION...')
+					else :
+						#with random RB :
+						batch = self.memory.sample(self.batch_size)
+
+					self.mutex.release()
+
+					if len(batch) == 0 :
+						continue
+
+					# Create Batch with replayMemory :
+					batch = TransitionPR( *zip(*batch) )
+					next_state_batch = Variable(torch.cat( batch.next_state))#, requires_grad=False)
+					state_batch = Variable( torch.cat( batch.state) )#, requires_grad=False)
+					action_batch = Variable( torch.cat( batch.action) )#, requires_grad=False)
+					reward_batch = Variable( torch.cat( batch.reward ) )#, requires_grad=False ).view((-1))
+					
+					if self.use_cuda :
+						next_state_batch = next_state_batch.cuda()
+						state_batch = state_batch.cuda()
+						action_batch = action_batch.cuda()
+						reward_batch = reward_batch.cuda()
+
+					#transfer current actor's weights to previous actor :
+					hard_update(self.previous_actor_critic, self.actor_critic)
+					optimizer.zero_grad()
+					
+					# Critic :
+					# Supervise loss :
+					## y_true :
+					y_true = reward_batch
+					## y_pred :
+					y_pred = torch.squeeze( self.actor_critic.evaluateV(state_batch) )
+					## loss :
+					#critic_loss = F.smooth_l1_loss(y_pred,y_true)
+					criterion = nn.MSELoss()
+					critic_loss = criterion(y_pred,y_true)
+					
+					
+					###################################
+					
+					# Actor :
+					
+					#predict action with old weights :
+					pred_old_action = self.previous_actor_critic.act(state_batch)
+					pred_old_dist = self.previous_actor_critic.dist
+					pred_old_log_prob_batch = pred_old_dist.log_prob(action_batch)
+					#predict action with current weights :
+					pred_action = self.actor_critic.act( state_batch) 
+					pred_dist = self.actor_critic.dist
+					pred_log_prob_batch = pred_dist.log_prob(action_batch)
+					
+					#helper vars :
+					clipped_m = (1.0-self.epsilon)#*torch.ones(ratio.size())
+					clipped_p = (1.0+self.epsilon)#*torch.ones(ratio.size())
+					
+					#compute advantage :
+					v = self.actor_critic.evaluateV( state_batch)
+					v = v.view((-1))
+					advantages = reward_batch-v
+					# center and reduice advantage :
+					advantages = ( advantages-advantages.mean() ) / ( advantages.std() + 1e-10)
+					advantages = advantages.view((-1,1) )
+					advantages = Variable( advantages.data )
+					
+					#compute ratios :
+					ratio = torch.exp(pred_log_prob_batch - Variable( pred_old_log_prob_batch.data) )
+					clipped_ratio = ratio.clamp(clipped_m,clipped_p)
+					surr = ratio * advantages
+					clipped_surr = clipped_ratio * advantages
+					actor_loss = -torch.min(surr,clipped_surr).mean()
+					
+					(critic_loss*0.1+actor_loss).backward()
+					
+					#clamping :
+					clampactor = 5e-1#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
+					torch.nn.utils.clip_grad_norm(self.actor_critic.parameters(),clampactor)				
+					
+					#update of the weights :
+					optimizer.step()
+					
+					###################################
+
+					
+					'''
+					critic_grad = 0.0
+					for p in self.critic.parameters() :
+						critic_grad += np.mean(p.grad.cpu().data.numpy())
+					print( 'Mean Critic Grad : {}'.format(critic_grad) )
+					'''
+					
+					actor_grad = 0.0
+					for p in self.actor_critic.parameters() :
+						if p.grad is not None :
+							actor_grad += np.max( np.abs(p.grad.cpu().data.numpy() ) )
+					#print( 'Mean Actor Grad : {}'.format(actor_grad) )
+					
+				except Exception as e :
+					bashlogger.debug('error : {}',format(e) )
+					raise e
+
+				# soft update :
+				#soft_update(self.target_critic, self.critic, self.tau)
+				#soft_update(self.target_actor, self.actor, self.tau)
+				# hard update :
+				#hard_update(self.target_critic, self.critic)
+				hard_update(self.target_actor_critic, self.actor_critic)
+
+
+				
+				closs = critic_loss.cpu()
+				aloss = actor_loss.cpu()
+				
+				acc_closs += closs
+				acc_aloss += aloss
+				acc_actor_grad += actor_grad
+
+			#UPDATE THE PR :
+			self.memory.reset()
+
+			return acc_closs.data.numpy(), acc_aloss.data.numpy(), acc_actor_grad
+
+		else :
+			raise NotImplemented
+
+
+	def compute_returns(self,exp_buffer) :
+		if self.algo == 'pg' :
+			cumr = 0.0 
+			for i in reversed(range(len(exp_buffer)) ) :
+				cumr = exp_buffer[i].reward + self.gamma*cumr
+				exp_buffer[i] = EXP(exp_buffer[i].state,exp_buffer[i].action,exp_buffer[i].next_state,cumr,exp_buffer[i].done)
+			return exp_buffer
+		elif self.algo == 'ddpg' :
+			return exp_buffer
+		elif self.algo == 'ppo' :
+			cumr = 0.0 
+			for i in reversed(range(len(exp_buffer)) ) :
+				cumr = exp_buffer[i].reward + self.gamma*cumr
+				exp_buffer[i] = EXP(exp_buffer[i].state,exp_buffer[i].action,exp_buffer[i].next_state,cumr,exp_buffer[i].done)
+			return exp_buffer
+		else :
+			return exp_buffer
+
+
+	def save(self,path) :
+		torch.save( self.actor_critic.state_dict(), path+'.actor_critic')
+		
+	def load(self, path) :
+		self.actor_critic.load_state_dict( torch.load(path+'.actor_critic') )
+		hard_update(self.target_actor_critic, self.actor_critic)
+		

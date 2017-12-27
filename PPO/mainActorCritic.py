@@ -6,8 +6,8 @@ from worker import Worker
 from utils.replayBuffer import EXP,PrioritizedReplayBuffer, ReplayMemory
 from utils.statsLogger import statsLogger
 
-from model import Model,Model2, Model2Distributed
-from NN import ActorNN,StochasticActorNN,CriticNN,ActorCriticNN,ActorCriticNN2
+from model import Model,Model2, Model2Distributed,ActorCriticModel2Distributed
+from NN import ActorNN,StochasticActorNN,CriticNN,ActorCriticNN, StochasticActorCriticNN,ActorCriticNN2
 
 import torch
 import torchvision.transforms as T
@@ -80,7 +80,7 @@ def main(train=True):
 	
 	numep = 200000
 	BATCH_SIZE = 64
-	GAMMA = 0.9
+	GAMMA = 0.99
 	TAU = 1e-3
 	MIN_MEMORY = 1e1
 	
@@ -88,7 +88,7 @@ def main(train=True):
 
 	alphaPER = 0.8
 	
-	lr = 1e-6
+	lr = 3e-4
 	memoryCapacity = 25e3
 	
 	num_worker = 1
@@ -119,7 +119,7 @@ def main(train=True):
 	if dueling :
 		model_path +='Dueling'
 	
-	model_path += algo
+	model_path += '+'+algo+'+ActorCritic'
 
 	use_pr = False
 
@@ -129,7 +129,9 @@ def main(train=True):
 	if HER['use_her'] :
 		model_path += '-HER'+'+k+'+str(k)+strategy
 
-	model_path += '-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
+	nbr_ep_per_train = 2
+
+	model_path += '-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-nbrEpPerTrain'+str(nbr_ep_per_train)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
 	
 	#mkdir :
 	if not os.path.exists(envpath) :
@@ -154,21 +156,19 @@ def main(train=True):
 	
 	#################################################
 	#################################################
-	'''
-	#actorcritic = ActorCriticNN(state_dim=input_dim,action_dim=action_dim,action_scaler=action_scaler,dueling=dueling,CNN=CNN,HER=HER['use_her'])
-	actorcritic = ActorCriticNN2(state_dim=input_dim,action_dim=action_dim,action_scaler=action_scaler,dueling=dueling,CNN=CNN,HER=HER['use_her'])
-	bashlogger.info('Models : creation ...')
-	actorcritic.share_memory()
-
-	model = Model(NN=actorcritic,memory=memory,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE)
+	actor_critic = StochasticActorCriticNN(state_dim=input_dim,action_dim=action_dim,action_scaler=action_scaler,CNN=CNN,HER=HER['use_her'])
+	actor_critic.share_memory()
+	model = ActorCriticModel2Distributed(actor_critic=actor_critic,memory=memory,algo=algo,GAMMA=GAMMA,LR=lr,TAU=TAU,use_cuda=use_cuda,BATCH_SIZE=BATCH_SIZE,MIN_MEMORY=MIN_MEMORY)
+	
 	bashlogger.info('Models : created.')
 	if frompath is not None :
+		if 'actor_critic' in frompath :
+			frompath = frompath[:-13]
 		model.load(frompath)
 		bashlogger.info('Models loaded: {}'.format(frompath))
+	#################################################
+	#################################################
 	'''
-	#################################################
-	#################################################
-	
 	#actor = ActorNN(state_dim=input_dim,action_dim=action_dim,action_scaler=action_scaler,CNN=CNN,HER=HER['use_her'])
 	actor = StochasticActorNN(state_dim=input_dim,action_dim=action_dim,action_scaler=action_scaler,CNN=CNN,HER=HER['use_her'])
 	actor.share_memory()
@@ -186,14 +186,14 @@ def main(train=True):
 			frompath = frompath[:-7]
 		model.load(frompath)
 		bashlogger.info('Models loaded: {}'.format(frompath))
-	
+	'''
 	#################################################
 	#################################################
 	
 	if train :
 		workers = []
 		for i in range(num_worker) :
-			worker = Worker(i,model,env,memory,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,HER=HER,use_cuda=use_cuda,rendering=renderings[i])
+			worker = Worker(i,model,env,memory,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,nbr_ep_per_train=nbr_ep_per_train,HER=HER,use_cuda=use_cuda,rendering=renderings[i])
 			workers.append(worker)
 			time.sleep(1)
 			worker.start()
