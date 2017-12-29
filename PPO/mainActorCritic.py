@@ -89,7 +89,7 @@ def main(train=True):
 	alphaPER = 0.8
 	
 	lr = 3e-4
-	memoryCapacity = 25e3
+	memoryCapacity = 25e4
 	
 	num_worker = 1
 	renderings = [False]*num_worker
@@ -129,7 +129,7 @@ def main(train=True):
 	if HER['use_her'] :
 		model_path += '-HER'+'+k+'+str(k)+strategy
 
-	nbr_ep_per_train = 2
+	nbr_ep_per_train = 100
 
 	model_path += '-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-nbrEpPerTrain'+str(nbr_ep_per_train)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
 	

@@ -297,7 +297,7 @@ class Worker :
 			
 			#accumulateMemory(memory,env,models,preprocess,epsstart=0.5,epsend=0.3,epsdecay=200,k=k,strategy=strategy)
 
-			usehd = False
+			usehd = True
 			if usehd :
 				from utils.histogram import HistogramDebug
 				hd = HistogramDebug()
@@ -500,7 +500,7 @@ class Worker :
 					episode_loss.append(meancloss)
 					meanaloss = np.mean(episode_aloss_buffer)
 					meanactorgrad = np.max(episode_grad_actor_buffer) 
-					log = 'Mean C/A Losses : {:.4f}/{:.4f} // Actor Grad : {:.8f}'.format(meancloss,meanaloss,meanactorgrad) 
+					log = 'TRAIN Iteration : {} // Mean C/A Losses : {:.4f}/{:.4f} // Actor Grad : {:.8f}'.format(i//nbr_ep_train,meancloss,meanaloss,meanactorgrad) 
 					bashlogger.info(log)
 						
 					if path is not None :
