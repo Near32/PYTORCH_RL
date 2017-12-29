@@ -26,7 +26,7 @@ MAX_STEP = 500
 
 
 class Worker :
-	def __init__(self,index,model,env,memory,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,nbr_ep_per_train=100,HER={'use_her':True,'k':4,'strategy':'future','singlegoal':False},use_cuda=True,rendering=False) :
+	def __init__(self,index,model,env,memory,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,nbr_ep_per_train=1,HER={'use_her':True,'k':4,'strategy':'future','singlegoal':False},use_cuda=True,rendering=False) :
 		self.index = index
 		self.model = model
 		self.envstr = env

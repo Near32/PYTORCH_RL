@@ -80,15 +80,13 @@ def main(train=True):
 	
 	numep = 200000
 	BATCH_SIZE = 64
-	GAMMA = 0.9
+	GAMMA = 0.99
 	TAU = 1e-3
 	MIN_MEMORY = 1e1
 	
 	CNN = {'use_cnn':use_cnn, 'input_size':input_dim}
 
-	alphaPER = 0.8
-	
-	lr = 1e-6
+	lr = 1e-4
 	memoryCapacity = 25e3
 	
 	num_worker = 1
@@ -122,7 +120,8 @@ def main(train=True):
 	model_path += algo
 
 	use_pr = False
-
+	alphaPER = 0.8
+	
 	if use_pr :
 		model_path += '-PR+'+'alpha'+str(alphaPER)
 
