@@ -86,10 +86,10 @@ def main(train=True):
 	
 	CNN = {'use_cnn':use_cnn, 'input_size':input_dim}
 
-	lr = 1e-4
-	memoryCapacity = 25e3
+	lr = 3e-4
+	memoryCapacity = 2e3
 	
-	num_worker = 1
+	num_worker = 2
 	renderings = [False]*num_worker
 	#renderings[0] = True
 	
@@ -128,7 +128,9 @@ def main(train=True):
 	if HER['use_her'] :
 		model_path += '-HER'+'+k+'+str(k)+strategy
 
-	model_path += '-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
+	nbr_ep_per_train = 2
+
+	model_path += '-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-nbrEpPerTrain'+str(nbr_ep_per_train)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
 	
 	#mkdir :
 	if not os.path.exists(envpath) :
@@ -192,7 +194,7 @@ def main(train=True):
 	if train :
 		workers = []
 		for i in range(num_worker) :
-			worker = Worker(i,model,env,memory,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,HER=HER,use_cuda=use_cuda,rendering=renderings[i])
+			worker = Worker(i,model,env,memory,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,nbr_ep_per_train=nbr_ep_per_train,HER=HER,use_cuda=use_cuda,rendering=renderings[i])
 			workers.append(worker)
 			time.sleep(1)
 			worker.start()

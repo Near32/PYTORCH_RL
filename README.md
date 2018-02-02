@@ -27,7 +27,7 @@ This implementation of the Deep Deterministic Policy Gradient (["Continuous Cont
 
 * ["Prioritized Experience Replay"](https://arxiv.org/pdf/1511.05952.pdf)
 * ["Dueling Deep Q-Network"](https://arxiv.org/pdf/1511.06581.pdf)
-* a multi-threaded architecture (["A2C"/"A3C"](https://arxiv.org/pdf/1602.01783.pdf).
+* a multi-threaded architecture (["A2C"/"A3C"](https://arxiv.org/pdf/1602.01783.pdf)).
 * ["Hindsight Experience Replay"](https://arxiv.org/pdf/1707.01495.pdf)
 
 Experiment : **Pendulum-v0** :
@@ -48,7 +48,7 @@ This implementation of the ["Proximal Policy Optimization Algorithm"](https://ar
 
 * ["Prioritized Experience Replay"](https://arxiv.org/pdf/1511.05952.pdf)
 * ["Dueling Deep Q-Network"](https://arxiv.org/pdf/1511.06581.pdf)
-* a multi-threaded architecture (["A2C"/"A3C"](https://arxiv.org/pdf/1602.01783.pdf).
+* a multi-threaded architecture (["A2C"/"A3C"](https://arxiv.org/pdf/1602.01783.pdf)).
 * ["Hindsight Experience Replay"](https://arxiv.org/pdf/1707.01495.pdf)
 
 Experiment : **Pendulum-v0** :

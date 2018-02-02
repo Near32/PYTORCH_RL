@@ -787,12 +787,19 @@ class Model2Distributed :
 		#self.actor.eval()
 		
 		#state = Variable( torch.from_numpy(x), volatile=True )
-		state = Variable( x, volatile=True )
+		state = Variable( x)
 		if self.use_cuda :
 			state = state.cuda()
 		action = self.actor( state).detach()
 		#action = self.target_actor( state).detach()
 		
+		try:
+			if action.size()[0] != state.size()[0] :
+				raise
+		except Exception as e :
+			print(action.size(),state.size(),x)
+			raise e 
+			
 		if self.algo == 'ppo' or exploitation :
 			return action.cpu().data.numpy()
 		else :
@@ -803,8 +810,8 @@ class Model2Distributed :
 	def evaluate(self, x,a) :
 		#self.critic.eval()
 		
-		state = Variable( x, volatile=True )
-		action = Variable( a, volatile=True )
+		state = Variable( x )
+		action = Variable( a )
 		if self.use_cuda :
 			state = state.cuda()
 			action = action.cuda()
@@ -823,6 +830,8 @@ class Model2Distributed :
 		'''
 
 		if self.algo == 'ppo' :
+			self.mutex.acquire()
+			
 			if len(self.memory) < self.MIN_MEMORY :
 						return
 			
@@ -836,7 +845,7 @@ class Model2Distributed :
 			for i in range(iterations) :					
 				try :					
 					#Create Batch 
-					self.mutex.acquire()
+					#self.mutex.acquire()
 					
 					if isinstance(self.memory, PrioritizedReplayBuffer) :
 						#with PR :
@@ -854,7 +863,7 @@ class Model2Distributed :
 						#with random RB :
 						batch = self.memory.sample(self.batch_size)
 
-					self.mutex.release()
+					#self.mutex.release()
 
 					if len(batch) == 0 :
 						continue
@@ -983,8 +992,10 @@ class Model2Distributed :
 				acc_aloss += aloss
 				acc_actor_grad += actor_grad
 
+			self.mutex.release()
+
 			#UPDATE THE PR :
-			self.memory.reset()
+			#self.memory.reset()
 
 			return acc_closs.data.numpy(), acc_aloss.data.numpy(), acc_actor_grad
 

@@ -342,7 +342,14 @@ class CriticNN(nn.Module) :
 		a1 = self.actfn( self.critic_afc1(a) )
 		a2 = self.actfn( self.critic_afc2(a1) )
 		# batch x 128
-		afx = torch.cat([ fx, a2], dim=1)
+		
+		try:
+			afx = torch.cat([ fx, a2], dim=1)
+		except Exception as e :
+			print(fx.size(),a2.size())
+			print(e)
+			raise e
+			
 		#afx = torch.cat([ fx, a1], dim=1)
 		# batch x 256
 

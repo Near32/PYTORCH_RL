@@ -297,7 +297,7 @@ class Worker :
 			
 			#accumulateMemory(memory,env,models,preprocess,epsstart=0.5,epsend=0.3,epsdecay=200,k=k,strategy=strategy)
 
-			usehd = True
+			usehd = False
 			if usehd :
 				from utils.histogram import HistogramDebug
 				hd = HistogramDebug()
