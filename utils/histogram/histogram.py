@@ -153,17 +153,19 @@ def test5() :
 	import threading
 	import time
 
-	def plot_a_graph():
+	def plot_a_graph(f=False):
 	    f,a = plt.subplots(1)
 	    line = plt.plot(range(10))
-	    plt.show()
+	    #plt.show()
+	    plt.pause(1)
+	    plt.draw()
 	    print("plotted graph")    
 	    time.sleep(4)
 
+	target = lambda  : plot_a_graph(True)
+	testthread = threading.Thread(target=target)
 
-	testthread = threading.Thread(target=plot_a_graph)
-
-	plot_a_graph()      # this works fine, displays the graph and waits
+	#plot_a_graph()      # this works fine, displays the graph and waits
 	print("that took some time")
 
 	testthread.start() # Thread starts, window is opened but no graph appears
