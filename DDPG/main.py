@@ -25,7 +25,7 @@ logging.basicConfig(format=FORMAT)
 
 
 
-use_cuda = True#torch.cuda.is_available()
+use_cuda = torch.cuda.is_available()
 
 
 '''
@@ -79,14 +79,18 @@ def main(train=True):
 	last_sync = 0
 	
 	numep = 20000
-	BATCH_SIZE = 16
+	#BATCH_SIZE = 256
+	BATCH_SIZE = 128
+	#BATCH_SIZE = 64#16
 	GAMMA = 0.99
 	TAU = 1e-3
 	MIN_MEMORY = 3e1
 	
 	CNN = {'use_cnn':use_cnn, 'input_size':input_dim}
 
-	alphaPER = 0.8
+	#alphaPER = 0.8
+	#alphaPER = 0.6
+	alphaPER = 0.95
 	
 	lr = 1e-3
 	memoryCapacity = 25e3
@@ -102,9 +106,10 @@ def main(train=True):
 	algo = 'ddpg'
 	
 	#HER :
+	use_her = False
+	#use_her = True
 	k = 2
 	strategy = 'future'
-	use_her = False
 	singlegoal = False
 	HER = {'k':k, 'strategy':strategy,'use_her':use_her,'singlegoal':singlegoal}
 
@@ -119,15 +124,26 @@ def main(train=True):
 	
 	model_path += algo
 
-	use_pr = False
+	varyExplorationNoise = False 
+	#varyExplorationNoise = True 
+	
+	if varyExplorationNoise :
+		model_path += '-vExplNoise'
+
+	use_pr = True
+	#use_pr = False
 
 	if use_pr :
-		model_path += '-PR+'+'alpha'+str(alphaPER)
+		model_path += '-TruePR+'+'alpha'+str(alphaPER)
+		#model_path += '-RandPR+'+'alpha'+str(alphaPER)
+		#model_path += '-TruncNormalPR+'+'alpha'+str(alphaPER)
 
 	if HER['use_her'] :
 		model_path += '-HER'+'+k+'+str(k)+strategy
 
-	model_path += '-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
+	#model_path += '-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
+	model_path += '-MSELoss-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
+	#model_path += '-L1Loss-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-tau'+str(TAU)+'-m'+str(memoryCapacity)+'/'
 	
 	#mkdir :
 	if not os.path.exists(envpath) :
@@ -181,6 +197,7 @@ def main(train=True):
 			frompath = frompath[:-6]
 		elif 'critic' in frompath :
 			frompath = frompath[:-7]
+		bashlogger.info('Models loading from: {}'.format(frompath))
 		model.load(frompath)
 		bashlogger.info('Models loaded: {}'.format(frompath))
 	
@@ -190,7 +207,7 @@ def main(train=True):
 	if train :
 		workers = []
 		for i in range(num_worker) :
-			worker = Worker(i,model,env,memory,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,HER=HER,use_cuda=use_cuda,rendering=renderings[i])
+			worker = Worker(i,model,env,memory,preprocess=preprocess,path=path,frompath=frompath,num_episodes=numep,HER=HER,use_cuda=use_cuda,rendering=renderings[i],varyExplorationNoise=varyExplorationNoise)
 			workers.append(worker)
 			time.sleep(1)
 			worker.start()

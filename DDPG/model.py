@@ -777,30 +777,36 @@ class Model2Distributed :
 
 	
 	def generate_optimizers(self) :
-		optimizer_actor = optim.Adam(self.actor.parameters(), self.lr*1e0)
+		optimizer_actor = optim.Adam(self.actor.parameters(), self.lr*1e-1)
 		optimizer_critic = optim.Adam(self.critic.parameters(), self.lr*1e0)
 
 		return {'critic':optimizer_critic,'actor':optimizer_actor}
 
 
-	def act(self, x,exploitation=True) :
+	def act(self, x,exploitation=True,exploration_noise=None,target=False,asnumpy=True) :
 		#self.actor.eval()
 		
-		#state = Variable( torch.from_numpy(x), volatile=True )
 		state = Variable( x, volatile=True )
 		if self.use_cuda :
 			state = state.cuda()
-		action = self.actor( state).detach()
-		#action = self.target_actor( state).detach()
+		if ~target :
+			action = self.actor( state).detach()
+		else :
+			action = self.target_actor( state).detach()
 		
 		if exploitation :
-			return action.cpu().data.numpy()
+			if asnumpy is False :
+				return action
+			else :
+				return action.cpu().data.numpy()
 		else :
 			# exploration :
+			if exploration_noise is not None :
+				self.noise.setSigma(exploration_noise)
 			new_action = action.cpu().data.numpy() + self.noise.sample()*self.actor.action_scaler
 			return new_action
 
-	def evaluate(self, x,a) :
+	def evaluate(self, x,a,target=False) :
 		#self.critic.eval()
 		
 		state = Variable( x, volatile=True )
@@ -809,11 +815,14 @@ class Model2Distributed :
 			state = state.cuda()
 			action = action.cuda()
 
-		qsa = self.critic( state, action).detach()
-		#qsa = self.target_critic( state, action).detach()
+		if ~target :
+			qsa = self.critic( state, action).detach()
+		else :
+			qsa = self.target_critic( state, action).detach()
 		
 		return qsa.cpu().data.numpy()
 
+	
 	def optimize(self,optimizer_critic,optimizer_actor) :
 		'''
 		self.target_critic.eval()
@@ -824,16 +833,26 @@ class Model2Distributed :
 
 		if self.algo == 'ddpg' :
 			try :
-				if len(self.memory) < self.MIN_MEMORY :
+				if len(self.memory) < self.MIN_MEMORY or len(self.memory) < self.batch_size :
 					return
 				
 				#Create Batch 
 				self.mutex.acquire()
-				
+
 				if isinstance(self.memory, PrioritizedReplayBuffer) :
 					#with PR :
 					prioritysum = self.memory.total()
-					randexp = np.random.random(size=self.batch_size)*prioritysum
+					
+					# Random Experience Sampling with priority
+					#randexp = np.random.random(size=self.batch_size)*prioritysum
+					
+					# Sampling within each sub-interval :
+					step = prioritysum / self.batch_size
+					randexp = np.arange(0.0,prioritysum,step)
+
+					# Sampling within each sub-interval with (un)trunc normal priority over the top :
+					#randexp = np.random.normal(loc=0.75,scale=1.0,size=self.batch_size) * prioritysum
+
 					batch = list()
 					for i in range(self.batch_size):
 						try :
@@ -858,13 +877,6 @@ class Model2Distributed :
 				action_batch = Variable( torch.cat( batch.action) )#, requires_grad=False)
 				reward_batch = Variable( torch.cat( batch.reward ) )#, requires_grad=False ).view((-1))
 				terminal_batch = Variable( torch.cat( batch.done ) )
-				
-				'''
-				next_state_batch = Variable(torch.cat( batch.next_state) )
-				state_batch = Variable( torch.cat( batch.state) )
-				action_batch = Variable( torch.cat( batch.action) )
-				reward_batch = Variable( torch.cat( batch.reward ) ).view((-1,1))
-				'''
 				
 				if self.use_cuda :
 					next_state_batch = next_state_batch.cuda()
@@ -892,9 +904,10 @@ class Model2Distributed :
 				## y_pred :
 				y_pred = torch.squeeze( self.critic(state_batch,action_batch) )
 				## loss :
-				critic_loss = F.smooth_l1_loss(y_pred,y_true)
-				#criterion = nn.MSELoss()
-				#critic_loss = criterion(y_pred,y_true)
+				#critic_loss = F.smooth_l1_loss(y_pred,y_true)
+				criterion = nn.MSELoss()
+				critic_loss = criterion(y_pred,y_true)
+				
 				critic_loss.backward()
 				
 				#weight decay :
@@ -970,8 +983,11 @@ class Model2Distributed :
 				decay_loss.backward()
 
 				#clamping :
+				'''
 				clampactor = 5e0#np.max( [ 0.25, 1.0/np.max( [ 5e-1, np.abs( np.mean(critic_loss.cpu().data.numpy() ) ) ] ) ] )
 				torch.nn.utils.clip_grad_norm(self.actor.parameters(),clampactor)				
+				'''
+
 				optimizer_actor.step()
 				# loss :
 				actor_loss = -1.0*torch.mean(torch.sum( pred_qsa) )

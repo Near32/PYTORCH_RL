@@ -178,6 +178,7 @@ class DuelingDQN(nn.Module) :
 
 def get_screen(task,action,preprocess) :
 	screen, reward, done, info = task.step(action)
+	reward = reward/10.0
 	#screen = screen.transpose( (2,0,1) )
 	#screen = np.ascontiguousarray( screen, dtype=np.float32) / 255.0
 	screen = np.ascontiguousarray( screen, dtype=np.float32)
@@ -345,7 +346,18 @@ class Worker :
 			
 			#Create Batch with PR :
 			prioritysum = memory.total()
-			randexp = np.random.random(size=BATCH_SIZE)*prioritysum
+			
+			# Random Experience Sampling with priority
+			#randexp = np.random.random(size=BATCH_SIZE)*prioritysum
+			
+			# Sampling within each sub-interval :
+			step = prioritysum / BATCH_SIZE
+			randexp = np.arange(0.0,prioritysum,step)
+
+			# Sampling within each sub-interval with (un)trunc normal priority over the top :
+			#randexp = np.random.normal(loc=0.75,scale=1.0,size=self.batch_size) * prioritysum
+
+			
 			batch = list()
 			for i in range(BATCH_SIZE):
 				try :
@@ -607,13 +619,16 @@ def main():
 	EPS_START = 0.9
 	EPS_END = 0.3
 	EPS_DECAY = 10000
-	alphaPER = 0.5
+	#alphaPER = 0.5
+	alphaPER = 0.8
 	global lr
 	lr = 1e-3
 	memoryCapacity = 25e3
-	num_worker = 8
+	#num_worker = 8
+	num_worker = 1
 
-	model_path = './'+env+'::CNN+DuelingDoubleDQN+PR-alpha'+str(alphaPER)+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
+	#model_path = './'+env+'::CNN+DuelingDoubleDQN+PR-alpha'+str(alphaPER)+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
+	model_path = './'+env+'::CNN+DuelingDoubleDQN+TruePR-alpha'+str(alphaPER)+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
 	
 	#mkdir :
 	if not os.path.exists(model_path) :
@@ -672,6 +687,7 @@ def main():
 				action, qsa = exploitation(model,state)
 				last_screen = current_screen
 				current_screen, reward, done, info = get_screen(task,action[0,0],preprocess=preprocess)
+				reward = reward/10.0
 				cumr += reward
 
 				task.render()

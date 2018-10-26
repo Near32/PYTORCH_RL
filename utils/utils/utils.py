@@ -19,6 +19,9 @@ class OrnsteinUhlenbeckNoise :
 
 		self.X = np.ones(self.dim)*self.mu
 
+	def setSigma(self,sigma):
+		self.sigma = sigma
+	
 	def sample(self) :
 		dx = self.theta * ( self.mu - self.X)
 		dx += self.sigma *  np.random.randn( self.dim )

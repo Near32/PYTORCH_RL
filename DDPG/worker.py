@@ -26,9 +26,10 @@ MAX_STEP = 500
 
 
 class Worker :
-	def __init__(self,index,model,env,memory,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,HER={'use_her':True,'k':4,'strategy':'future','singlegoal':False},use_cuda=True,rendering=False) :
+	def __init__(self,index,model,env,memory,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,HER={'use_her':True,'k':4,'strategy':'future','singlegoal':False},use_cuda=True,rendering=False,varyExplorationNoise=False) :
 		self.index = index
 		self.model = model
+		self.varyExplorationNoise = varyExplorationNoise
 		self.envstr = env
 		self.env = gym.make(self.envstr)
 		self.env.reset()
@@ -73,7 +74,23 @@ class Worker :
 		self.thread.join()
 
 
-	def trainIN(self,index,model,env,memory,optimizers,logger=None,preprocess=T.ToTensor(),path=None,frompath=None,num_episodes=1000,HER={'use_her':True,'k':4,'strategy':'future','singlegoal':False},use_cuda=True,rendering=False): 
+	def trainIN(self,index,
+					model,
+					env,
+					memory,
+					optimizers,
+					logger=None,
+					preprocess=T.ToTensor(),
+					path=None,
+					frompath=None,
+					num_episodes=1000,
+					HER={'use_her':True,'k':4,'strategy':'future','singlegoal':False},
+					use_cuda=True,
+					rendering=False,
+					reward_scaler = 10.0): 
+
+		exploration_noise = 0.2
+						
 		try :
 			episode_durations = []
 			episode_reward = []
@@ -88,8 +105,7 @@ class Worker :
 				from utils.histogram import HistogramDebug
 				hd = HistogramDebug()
 				hd.setXlimit(-2.5,2.5)
-			reward_scaler = 10.0
-
+			
 			for i in range(num_episodes) :
 				bashlogger.info('Episode : {} : memory : {}/{}'.format(i,len(memory),memory.capacity) )
 				
@@ -128,13 +144,25 @@ class Worker :
 					if i%5 == 0 :
 						action = model.act(evalstate, exploitation=True)
 					else :
-						action = model.act(evalstate, exploitation=False)
+						if self.varyExplorationNoise :
+							temp_action = model.act(evalstate,exploitation=True,target=False,asnumpy=False)
+							tqsa = model.evaluate(evalstate,temp_action.data,target=True)
+							qsa = model.evaluate(evalstate,temp_action.data,target=False)
+							qsa_diff = np.abs(tqsa[0]-qsa[0])
+							exploration_noise = 0.2*1e-2/(qsa_diff+1e-2)
+							#bashlogger.info('EXPL NOISE = {}'.format(exploration_noise))
+						action = model.act(evalstate, exploitation=False, exploration_noise=exploration_noise)
+
 					
 					action_buffer.append(action )
 
 					taction = torch.from_numpy(action.astype(np.float32))
 
-					last_state = evalstate
+					if False:#HER['use_her'] :
+						evalstatesize = evalstate.size()[1]
+						last_state = evalstate[:,:evalstatesize//2]
+					else :
+						last_state = evalstate
 					state, reward, done, info = get_state(env, action,preprocess=preprocess)
 					
 					reward /= reward_scaler
@@ -155,8 +183,9 @@ class Worker :
 					if done :
 						terminal = 1.0
 					tterminal = terminal*torch.ones((1))
+					
 					episode_buffer.append( EXP(last_state,taction,state,treward,tterminal) )
-
+					
 					episode_qsa_buffer.append( model.evaluate(evalstate, taction) )
 
 					#Optimize model :
@@ -200,6 +229,12 @@ class Worker :
 						bashlogger.info(log)
 						if logger is not None :
 							new = {'episodes':[i],'duration':[t+1],'reward':[cumul_reward],'mean frequency':[meanfreq],'critic loss':[meancloss],'actor loss':[meanaloss],'max qsa':[maxqsa],'mean qsa':[meanqsa],'mean action':[meanaction]}
+							if self.varyExplorationNoise :
+								if i%5==0 :
+									qsa_diff = np.zeros(1)
+									exploration_noise = np.zeros(1)
+								new.update( {'exploration_noise':exploration_noise,'qsa_diff':qsa_diff})
+							
 							logger.append(new)
 
 						if path is not None :
@@ -226,10 +261,12 @@ class Worker :
 										done=el.done
 									)
 						
-						init_priority = memory.priority( torch.abs(init_el.reward).numpy() )
+						if isinstance(memory, PrioritizedReplayBuffer):
+							init_priority = memory.priority( torch.abs(init_el.reward).numpy() )
+							memory.add(init_el,init_priority)
+						else :
+							memory.add(init_el)
 						
-						memory.add(init_el,init_priority)
-
 						#store for multiple goals :
 						#1: sample new goal :
 						goals = []
@@ -256,9 +293,12 @@ class Worker :
 											done=el.done
 										)
 							
-							init_priority = memory.priority( torch.abs(goalel.reward).numpy() )
-							memory.add(goalel,init_priority)
-							
+							if isinstance(memory, PrioritizedReplayBuffer):
+								init_priority = memory.priority( torch.abs(goalel.reward).numpy() )
+								memory.add(goalel,init_priority)
+							else :
+								memory.add(goalel)
+
 						del el
 						del goals
 				else :
