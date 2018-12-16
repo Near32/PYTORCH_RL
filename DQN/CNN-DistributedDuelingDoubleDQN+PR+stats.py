@@ -43,6 +43,7 @@ logging.basicConfig(format=FORMAT)
 use_cuda = True#torch.cuda.is_available()
 rendering = False
 MAX_STEPS = 1000
+REWARD_SCALER = 1.0
 
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
@@ -177,8 +178,9 @@ class DuelingDQN(nn.Module) :
 
 
 def get_screen(task,action,preprocess) :
+	global REWARD_SCALER
 	screen, reward, done, info = task.step(action)
-	reward = reward/10.0
+	reward = reward/REWARD_SCALER
 	#screen = screen.transpose( (2,0,1) )
 	#screen = np.ascontiguousarray( screen, dtype=np.float32) / 255.0
 	screen = np.ascontiguousarray( screen, dtype=np.float32)
@@ -314,8 +316,8 @@ class Worker :
 
 		self.optimizer.zero_grad()
 
-
-		decay_loss = 0.5*sum( [torch.mean(param*param) for param in self.model.parameters()])
+		decay_lambda = 1e-0
+		decay_loss = decay_lambda * 0.5*sum( [torch.mean(param*param) for param in self.model.parameters()])
 		decay_loss.backward()
 		
 		for wparam, mparam in zip(self.wmodel.parameters(), self.model.parameters() ) :
@@ -351,17 +353,26 @@ class Worker :
 			#randexp = np.random.random(size=BATCH_SIZE)*prioritysum
 			
 			# Sampling within each sub-interval :
-			step = prioritysum / BATCH_SIZE
-			randexp = np.arange(0.0,prioritysum,step)
-
+			#step = prioritysum / BATCH_SIZE
+			#randexp = np.arange(0.0,prioritysum,step)
+			fraction = 0.0#0.8
+			low = 0.0#fraction*prioritysum 
+			step = (prioritysum-low) / BATCH_SIZE
+			try:
+				randexp = np.arange(low,prioritysum,step)+np.random.uniform(low=0.0,high=step,size=(BATCH_SIZE))
+			except Exception as e :
+				print( prioritysum, step)
+				raise e 
 			# Sampling within each sub-interval with (un)trunc normal priority over the top :
 			#randexp = np.random.normal(loc=0.75,scale=1.0,size=self.batch_size) * prioritysum
 
 			
 			batch = list()
+			priorities = np.zeros(BATCH_SIZE)
 			for i in range(BATCH_SIZE):
 				try :
 					el = memory.get(randexp[i])
+					priorities[i] = el[1]
 					batch.append(el)
 				except TypeError as e :
 					continue
@@ -373,6 +384,10 @@ class Worker :
 			#transitions = memory.sample(BATCH_SIZE)
 			#batch = Transition(*zip(*transitions) )
 
+			beta = 1.0
+			priorities = Variable( torch.from_numpy(priorities ), requires_grad=False).float()
+			importanceSamplingWeights = torch.pow( len(memory) * priorities , -beta)
+			
 			next_state_batch = Variable(torch.cat( batch.next_state), requires_grad=False)
 			state_batch = Variable( torch.cat( batch.state) , requires_grad=False)
 			action_batch = Variable( torch.cat( batch.action) , requires_grad=False)
@@ -381,6 +396,7 @@ class Worker :
 			done_batch = Variable( torch.FloatTensor(done_batch), requires_grad=False ).view((-1,1))
 			
 			if use_cuda :
+				importanceSamplingWeights = importanceSamplingWeights.cuda()
 				next_state_batch = next_state_batch.cuda()
 				state_batch = state_batch.cuda()
 				action_batch = action_batch.cuda()
@@ -401,16 +417,18 @@ class Worker :
 			# Compute Huber loss
 			#loss = F.smooth_l1_loss(state_action_values_g, expected_state_action_values)
 			diff = state_action_values_g - expected_state_action_values
-			loss = torch.mean( diff*diff)
+			diff_squared = diff*diff
+			is_diff_squared = importanceSamplingWeights * diff_squared
+			loss = torch.mean( is_diff_squared)
 			#loss = nn.MSELoss(state_action_values_g, expected_state_action_values)
 			
 			# Optimize the model
-			#optimizer.zero_grad()
+			# we do not zero the worker's model's gradient since it is used as an accumulator for gradient.
+			# The worker's model's gradient accumulator is being zero-ed after being applied to the model,
+			# when the function from_worker2model is called.
 			loss.backward()
 			
-			#optimizer.step()
-			#self.from_worker2model()
-
+			
 		except Exception as e :
 			#TODO : find what is the reason of this error in backward...
 			#"leaf variable was used in an inplace operation."
@@ -492,7 +510,7 @@ class Worker :
 					reward = FloatTensor([reward])
 
 					if not done :
-						next_state = current_screen -last_screen
+						next_state = current_screen#-last_screen
 					else :
 						next_state = torch.zeros(current_screen.size())
 
@@ -540,10 +558,10 @@ class Worker :
 						meanqsa = np.mean(episode_qsa_buffer)
 
 
-						log = 'Episode duration : {}'.format(t+1) +'---' +' Reward : {} // Mean Loss : {} // QSA : {}'.format(cumul_reward,meanloss,meanqsa) +'---'+' {}Hz'.format(meanfreq)
+						log = 'Episode duration : {}'.format(t+1) +'---' +'Cum Reward : {} // Mean Loss : {} // QSA : {}'.format(cumul_reward,meanloss,meanqsa) +'---'+' {}Hz'.format(meanfreq)
 						bashlogger.info(log)
 						if logger is not None :
-							new = {'episodes':[i],'duration':[t+1],'reward':[cumul_reward],'mean frequency':[meanfreq],'loss':[meanloss]}
+							new = {'episodes':[i],'duration':[t+1],'cum reward':[cumul_reward],'mean frequency':[meanfreq],'loss':[meanloss],'meanQSA':[meanqsa]}
 							logger.append(new)
 
 						if path is not None :
@@ -608,15 +626,15 @@ def main():
 
 	last_sync = 0
 	
-	numep = 200000
+	numep = 1000
 	global BATCH_SIZE
-	BATCH_SIZE = 128
+	BATCH_SIZE = 256
 	global GAMMA
 	GAMMA = 0.999
-	TAU = 1e-3
+	TAU = 1e-2
 	global MIN_MEMORY
 	MIN_MEMORY = 1e3
-	EPS_START = 0.9
+	EPS_START = 0.999
 	EPS_END = 0.3
 	EPS_DECAY = 10000
 	#alphaPER = 0.5
@@ -625,11 +643,20 @@ def main():
 	lr = 1e-3
 	memoryCapacity = 25e3
 	#num_worker = 8
-	num_worker = 1
+	num_worker = 4
+	#num_worker = 2
+	#num_worker = 1
 
 	#model_path = './'+env+'::CNN+DuelingDoubleDQN+PR-alpha'+str(alphaPER)+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
-	model_path = './'+env+'::CNN+DuelingDoubleDQN+TruePR-alpha'+str(alphaPER)+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
+	model_path = './'+env+'::CNN+DuelingDoubleDQN+WithZG+GAMMA{}+TAU{}'.format(GAMMA,TAU)\
+	+'+IS+PER-alpha'+str(alphaPER) \
+	+'+RewardScaler{}'.format(REWARD_SCALER)\
+	+'-w'+str(num_worker)+'-lr'+str(lr)+'-b'+str(BATCH_SIZE)+'-m'+str(memoryCapacity)+'/'
 	
+	#+'+PER-alpha'+str(alphaPER) \
+	#+'+TruePR-alpha'+str(alphaPER)\
+	
+
 	#mkdir :
 	if not os.path.exists(model_path) :
 		os.mkdir(model_path)
@@ -687,7 +714,7 @@ def main():
 				action, qsa = exploitation(model,state)
 				last_screen = current_screen
 				current_screen, reward, done, info = get_screen(task,action[0,0],preprocess=preprocess)
-				reward = reward/10.0
+				reward = reward/REWARD_SCALER
 				cumr += reward
 
 				task.render()
@@ -697,7 +724,7 @@ def main():
 					done = True
 					task.reset()
 					next_state = torch.zeros(current_screen.size())
-					print('EVALUATION : EPISODE {} : reward = {} // steps = {} // DONE : {}'.format(ep,cumr, nbrsteps,done))
+					print('EVALUATION : EPISODE {} : cum reward = {} // steps = {} // DONE : {}'.format(ep,cumr, nbrsteps,done))
 				else :
 					next_state = current_screen -last_screen
 					#print('step {}/{} : action = {}'.format(nbrsteps,MAX_STEPS, action))

@@ -1,6 +1,7 @@
 import numpy as np
 from collections import namedtuple
 import random
+from threading import Lock
 
 '''
 class EXP :
@@ -31,11 +32,31 @@ class PrioritizedReplayBuffer :
 		self.capacity = int(capacity)
 		self.tree = np.zeros(2*self.capacity-1)
 		self.data = np.zeros(self.capacity,dtype=object)
-	
+		self.sumPi_alpha = 0.0
+		self.mutex = Lock()
+		self.update_mutex = Lock()
+
+	def lock(self) :
+		self.mutex.acquire()
+
+	def unlock(self) :
+		self.mutex.release()
+
+	def update_lock(self) :
+		self.update_mutex.acquire()
+
+	def update_unlock(self) :
+		self.update_mutex.release()
+
 	def reset(self) :
 		self.__init__(capacity=self.capacity,alpha=self.alpha)
 
 	def add(self, exp, priority) :
+		self.lock()
+
+		if np.isnan(priority) or np.isinf(priority) :
+			priority = self.total()/self.capacity 
+		
 		idx = self.counter + self.capacity -1
 		
 		self.data[self.counter] = exp
@@ -45,18 +66,36 @@ class PrioritizedReplayBuffer :
 		if self.counter >= self.capacity :
 			self.counter = 0
 		
+		self.sumPi_alpha += priority
 		self.update(idx,priority)
+
+		self.unlock()
 	
 	def priority(self, error) :
 		return (error+self.epsilon)**self.alpha
 			
 	def update(self, idx, priority) :
-		change = priority - self.tree[idx]
+		self.update_lock()
+
+		if np.isnan(priority) or np.isinf(priority) :
+			priority = self.total()/self.capacity 
 		
+		change = priority - self.tree[idx]
+		if change > 1e3 :
+			print('BIG CHANGE HERE !!!!')
+			print(change)
+			raise Exception()
+
+		previous_priority = self.tree[idx]
+		self.sumPi_alpha -= previous_priority
+
+		self.sumPi_alpha += priority
 		self.tree[idx] = priority
 		
 		self._propagate(idx,change)
 		
+		self.update_unlock()
+
 	def _propagate(self, idx, change) :
 		parentidx = (idx - 1) // 2
 		
@@ -85,6 +124,9 @@ class PrioritizedReplayBuffer :
 		
 		return (idx, priority, *data)
 	
+	def get_importance_sampling_weight(priority,beta=1.0) :
+		return pow( self.capacity * priority , -beta )
+
 	def get_buffer(self) :
 		return [ self.data[i] for i in range(self.capacity) if isinstance(self.data[i],EXP) ]
 
